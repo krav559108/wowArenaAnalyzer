@@ -1,0 +1,49 @@
+appId: com.krav559108.wow-arena-recorder
+productName: WoW Arena Recorder
+copyright: Copyright © 2024 Aleksandr Kravchenko
+
+# electron-vite outputs to out/; electron-builder picks it up from there.
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - out/**/*
+  - "!**/*.map"
+
+# ---------------------------------------------------------------------------
+# macOS
+# ---------------------------------------------------------------------------
+mac:
+  category: public.app-category.games
+  target:
+    - target: dmg
+      arch:
+        - universal   # fat binary: arm64 + x64 in one .app
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  # null = ad-hoc signing (local dev builds, no Developer ID required).
+  # For notarised public distribution, remove this line and set
+  # CSC_LINK / CSC_KEY_PASSWORD or use the Xcode keychain.
+  identity: null
+  extendInfo:
+    # Required since macOS 10.15 for any app that captures the screen.
+    NSScreenCaptureUsageDescription: >-
+      WoW Arena Recorder captures your screen to record arena matches.
+      This permission is used only while a match is in progress.
+
+dmg:
+  title: "${productName} ${version}"
+  background: null
+  window:
+    width: 540
+    height: 380
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications

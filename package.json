@@ -1,0 +1,52 @@
+{
+  "name": "wow-arena-analyzer",
+  "version": "1.0.0",
+  "description": "macOS WoW arena recorder — auto-records arenas via combat log + FFmpeg",
+  "main": "out/main/index.js",
+  "author": "Aleksandr Kravchenko",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/krav559108/wowArenaAnalyzer.git"
+  },
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "build:mac": "npm run build && electron-builder --mac",
+    "build:mac:universal": "npm run build && electron-builder --mac --universal",
+    "lint": "eslint . --ext .ts,.vue --max-warnings 0",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "chokidar": "^3.5.0",
+    "electron-store": "^8.2.0",
+    "fluent-ffmpeg": "^2.1.0",
+    "naive-ui": "^2.38.0",
+    "pinia": "^2.1.0",
+    "vue": "^3.4.0",
+    "vue-router": "^4.3.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/fluent-ffmpeg": "^2.1.0",
+    "@types/node": "^20.0.0",
+    "@vitejs/plugin-vue": "^5.0.0",
+    "@vue/tsconfig": "^0.5.0",
+    "autoprefixer": "^10.5.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "electron-vite": "^2.3.0",
+    "eslint": "^9.0.0",
+    "eslint-plugin-vue": "^9.0.0",
+    "prettier": "^3.0.0",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.4.0",
+    "typescript-eslint": "^8.58.2",
+    "vite": "^5.0.0",
+    "vitest": "^1.0.0",
+    "vue-tsc": "^2.0.0"
+  }
+}

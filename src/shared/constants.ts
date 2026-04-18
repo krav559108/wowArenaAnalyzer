@@ -1,0 +1,618 @@
+// Application-wide constants. No magic numbers in the codebase — define them here.
+// Zone IDs and spell IDs must be verified against the current Midnight patch notes.
+
+// ---------------------------------------------------------------------------
+// Arena zone IDs — instance map IDs as reported by ZONE_CHANGE in the combat log.
+// Source: https://warcraft.wiki.gg/wiki/InstanceID (Arenas section)
+// Verified from real log: Tiger's Peak = 1134 (WoWCombatLog-041526_131655).
+// ---------------------------------------------------------------------------
+
+export const ARENA_ZONE_IDS: ReadonlySet<number> = new Set([
+  572, // Ruins of Lordaeron
+  617, // Dalaran Sewers
+  618, // Ring of Valor
+  980, // Tol'Viron Arena
+  1134, // Tiger's Peak — verified from real log
+  1504, // Black Rook Hold Arena
+  1505, // Nagrand Arena
+  1552, // Ashamane's Fall
+  1672, // Blade's Edge Arena
+  1825, // Hook Point
+  2373, // Empyrean Domain
+  2509, // Maldraxxus Coliseum
+  2547, // Enigma Crucible
+  2563, // Nokhudon Proving Grounds
+  2759 // Cage of Carnage (TWW patch 11.1.0)
+])
+
+// Human-readable zone names keyed by zone ID.
+export const ARENA_ZONE_NAMES: Readonly<Record<number, string>> = {
+  572: 'Ruins of Lordaeron',
+  617: 'Dalaran Sewers',
+  618: 'Ring of Valor',
+  980: "Tol'Viron Arena",
+  1134: "Tiger's Peak",
+  1504: 'Black Rook Hold Arena',
+  1505: 'Nagrand Arena',
+  1552: "Ashamane's Fall",
+  1672: "Blade's Edge Arena",
+  1825: 'Hook Point',
+  2373: 'Empyrean Domain',
+  2509: 'Maldraxxus Coliseum',
+  2547: 'Enigma Crucible',
+  2563: 'Nokhudon Proving Grounds',
+  2759: 'Cage of Carnage'
+}
+
+// ---------------------------------------------------------------------------
+// Bracket identifiers as they appear in ARENA_MATCH_START combat log events
+// ---------------------------------------------------------------------------
+
+export const BRACKET_FIELD_MAP: Readonly<Record<string, import('./ipc.types').ArenaBracket>> = {
+  '2v2': '2v2',
+  '3v3': '3v3',
+  'solo shuffle': 'solo-shuffle',
+  'skirmish': 'skirmish'
+}
+
+// ---------------------------------------------------------------------------
+// Solo Shuffle
+// ---------------------------------------------------------------------------
+
+export const SOLO_SHUFFLE_ROUNDS_PER_SESSION = 6
+
+// ---------------------------------------------------------------------------
+// Timeline event colours for canvas rendering
+// ---------------------------------------------------------------------------
+
+export const TIMELINE_COLORS: Readonly<Record<import('./ipc.types').TimelineEventType, string>> = {
+  'arena-start': '#ffffff',
+  'arena-end': '#ffffff',
+  'death-player': '#ef4444', // red-500
+  'death-enemy': '#f97316', // orange-500
+  cc: '#eab308',            // yellow-500
+  defensive: '#3b82f6',     // blue-500
+  offensive: '#f97316',     // orange-500
+  interrupt: '#22c55e',     // green-500
+  'cc-break': '#a855f7',    // purple-500
+  trinket: '#e879f9',       // fuchsia-400
+}
+
+// ---------------------------------------------------------------------------
+// Spell IDs — CC
+// Must be verified against Midnight Retail patch notes.
+// ---------------------------------------------------------------------------
+
+export const SPELL_IDS_CC: ReadonlySet<number> = new Set([
+  118, // Polymorph (Mage)
+  51514, // Hex (Shaman)
+  5782, // Fear (Warlock)
+  6770, // Sap (Rogue)
+  1776, // Gouge (Rogue)
+  408, // Kidney Shot (Rogue)
+  1833, // Cheap Shot (Rogue)
+  2094, // Blind (Rogue)
+  339, // Entangling Roots (Druid)
+  33786, // Cyclone (Druid)
+  22570, // Maim (Druid)
+  9005, // Pounce (Druid)
+  19386, // Wyvern Sting (Hunter)
+  3355, // Freezing Trap (Hunter)
+  710, // Banish (Warlock)
+  6358, // Seduction (Warlock)
+  30283, // Shadowfury (Warlock)
+  853, // Hammer of Justice (Paladin)
+  20066, // Repentance (Paladin)
+  10326, // Turn Evil (Paladin)
+  9484, // Shackle Undead (Priest)
+  605, // Mind Control (Priest)
+  8122, // Psychic Scream (Priest)
+  31935, // Avenger's Shield (Paladin)
+  107570, // Storm Bolt (Warrior)
+  5246, // Intimidating Shout (Warrior)
+  46968, // Shockwave (Warrior)
+  119381, // Leg Sweep (Monk)
+  115078, // Paralysis (Monk)
+  202346, // Double Barrel (Hunter — BM)
+  187650, // Freezing Trap (Hunter, second ID)
+  162480 // Steel Trap (Hunter)
+])
+
+// ---------------------------------------------------------------------------
+// Spell IDs — Defensives
+// ---------------------------------------------------------------------------
+
+export const SPELL_IDS_DEFENSIVE: ReadonlySet<number> = new Set([
+  // Paladin
+  642,   // Divine Shield
+  498,   // Divine Protection
+  31850, // Ardent Defender
+  1022,  // Blessing of Protection
+  // Mage
+  45438,  // Ice Block
+  108978, // Alter Time
+  110959, // Greater Invisibility
+  235450, // Prismatic Barrier (Arcane)
+  // Hunter
+  186265, // Aspect of the Turtle
+  109304, // Exhilaration
+  5384,   // Feign Death
+  // Druid
+  22812, // Barkskin
+  33891, // Survival Instincts — alternate ID
+  61336, // Survival Instincts — primary ID
+  22842, // Frenzied Regeneration
+  102342, // Ironbark
+  // Priest
+  47788, // Guardian Spirit
+  33206, // Pain Suppression
+  47585, // Dispersion
+  19236, // Desperate Prayer
+  // Rogue
+  5277,  // Evasion (primary ID)
+  6229,  // Evasion (alternate ID)
+  1966,  // Feint
+  31224, // Cloak of Shadows
+  1856,  // Vanish
+  // Warrior
+  871,    // Shield Wall
+  23920,  // Spell Reflection
+  118038, // Die by the Sword
+  97462,  // Rallying Cry
+  184364, // Enraged Regeneration
+  // Monk
+  115176, // Zen Meditation
+  122278, // Dampen Harm
+  122783, // Diffuse Magic
+  115203, // Fortifying Brew (Windwalker)
+  243435, // Fortifying Brew (Mistweaver)
+  // Warlock
+  104773, // Unending Resolve
+  108416, // Dark Pact
+  // Shaman
+  108271, // Astral Shift
+  198103, // Earth Elemental
+  98008,  // Spirit Link Totem
+  // Death Knight
+  48707, // Anti-Magic Shell
+  48792, // Icebound Fortitude
+  48743, // Death Pact
+  49039, // Lichborne
+  // Demon Hunter
+  198589, // Blur
+  196555, // Netherwalk
+  196718, // Darkness
+  // Evoker
+  363916, // Obsidian Scales
+  374348, // Renewing Blaze
+  374875, // Time Spiral
+  370784, // Rescue
+])
+
+// ---------------------------------------------------------------------------
+// Spell IDs — Offensive cooldowns
+// ---------------------------------------------------------------------------
+
+export const SPELL_IDS_OFFENSIVE: ReadonlySet<number> = new Set([
+  2825, // Bloodlust (Shaman)
+  32182, // Heroism (Shaman)
+  80353, // Time Warp (Mage)
+  264667, // Primal Rage (Hunter — BM)
+  390386, // Fury of the Aspects (Evoker)
+  12472, // Icy Veins (Mage)
+  13750, // Adrenaline Rush (Rogue)
+  51271, // Pillar of Frost (DK)
+  31884, // Avenging Wrath (Paladin)
+  190319, // Combustion (Mage)
+  193530, // Aspect of the Wild (Hunter)
+  220143, // Mechanics — Aspect of the Eagle (Hunter)
+  319454, // Apocalypse (DK Unholy)
+  47568, // Empower Rune Weapon (DK)
+  107574, // Avatar (Warrior)
+  152173, // Serenity (Monk)
+  123904, // Invoke Xuen (Monk)
+  137639, // Storm, Earth, and Fire (Monk)
+  375087 // Dragonrage (Evoker)
+])
+
+// ---------------------------------------------------------------------------
+// Spell IDs — Interrupts
+// ---------------------------------------------------------------------------
+
+export const SPELL_IDS_INTERRUPT: ReadonlySet<number> = new Set([
+  2139, // Counterspell (Mage)
+  1766, // Kick (Rogue)
+  6552, // Pummel (Warrior)
+  47528, // Mind Freeze (DK)
+  183752, // Consume Magic (DH)
+  116705, // Spear Hand Strike (Monk)
+  96231, // Rebuke (Paladin)
+  57994, // Wind Shear (Shaman)
+  19647, // Spell Lock (Warlock — felhunter)
+  147362, // Counter Shot (Hunter)
+  187707, // Muzzle (Hunter — MM)
+  351338 // Quell (Evoker)
+])
+
+// ---------------------------------------------------------------------------
+// Spell IDs — CC Breaks (Trinket + PvP talents)
+// ---------------------------------------------------------------------------
+
+// PvP trinket and racial CC breaks — shown as 'trinket' event type
+export const SPELL_IDS_TRINKET: ReadonlySet<number> = new Set([
+  42292, // PvP Trinket
+  59752, // Every Man for Himself (Human racial)
+  7744,  // Will of the Forsaken (Undead racial)
+])
+
+export const SPELL_IDS_CC_BREAK: ReadonlySet<number> = new Set([
+  20549,  // War Stomp (Tauren racial)
+  255654, // Battle Cry (generic CC break)
+])
+
+// ---------------------------------------------------------------------------
+// Spell ID → class name mapping for class inference from combat events.
+// Covers all tracked spell IDs (CC, defensive, offensive, interrupt, cc-break)
+// plus class-specific racial/signature spells seen in arena.
+// ---------------------------------------------------------------------------
+
+export const SPELL_CLASS_MAP: Readonly<Record<number, string>> = {
+  // Mage
+  118: 'Mage',       // Polymorph
+  12472: 'Mage',     // Icy Veins
+  190319: 'Mage',    // Combustion
+  80353: 'Mage',     // Time Warp
+  2139: 'Mage',      // Counterspell
+  45438: 'Mage',     // Ice Block
+
+  // Rogue
+  6770: 'Rogue',     // Sap
+  1776: 'Rogue',     // Gouge
+  408: 'Rogue',      // Kidney Shot
+  1833: 'Rogue',     // Cheap Shot
+  2094: 'Rogue',     // Blind
+  1766: 'Rogue',     // Kick
+  6229: 'Rogue',     // Evasion
+  1966: 'Rogue',     // Feint
+  31224: 'Rogue',    // Cloak of Shadows
+  13750: 'Rogue',    // Adrenaline Rush
+
+  // Druid
+  339: 'Druid',      // Entangling Roots
+  33786: 'Druid',    // Cyclone
+  22570: 'Druid',    // Maim
+  9005: 'Druid',     // Pounce
+  22812: 'Druid',    // Barkskin
+  33891: 'Druid',    // Survival Instincts
+
+  // Shaman
+  51514: 'Shaman',   // Hex
+  57994: 'Shaman',   // Wind Shear
+  2825: 'Shaman',    // Bloodlust
+  32182: 'Shaman',   // Heroism
+
+  // Warlock
+  5782: 'Warlock',   // Fear
+  710: 'Warlock',    // Banish
+  6358: 'Warlock',   // Seduction
+  30283: 'Warlock',  // Shadowfury
+  104773: 'Warlock', // Unending Resolve
+  108416: 'Warlock', // Dark Pact
+  19647: 'Warlock',  // Spell Lock
+
+  // Paladin
+  853: 'Paladin',    // Hammer of Justice
+  20066: 'Paladin',  // Repentance
+  10326: 'Paladin',  // Turn Evil
+  31935: 'Paladin',  // Avenger's Shield
+  642: 'Paladin',    // Divine Shield
+  96231: 'Paladin',  // Rebuke
+  31884: 'Paladin',  // Avenging Wrath
+
+  // Priest
+  9484: 'Priest',    // Shackle Undead
+  605: 'Priest',     // Mind Control
+  8122: 'Priest',    // Psychic Scream
+  47788: 'Priest',   // Guardian Spirit
+  33206: 'Priest',   // Pain Suppression
+
+  // Warrior
+  107570: 'Warrior', // Storm Bolt
+  5246: 'Warrior',   // Intimidating Shout
+  46968: 'Warrior',  // Shockwave
+  871: 'Warrior',    // Shield Wall
+  23920: 'Warrior',  // Spell Reflection
+  118038: 'Warrior', // Die by the Sword
+  6552: 'Warrior',   // Pummel
+  107574: 'Warrior', // Avatar
+
+  // Monk
+  119381: 'Monk',    // Leg Sweep
+  115078: 'Monk',    // Paralysis
+  115176: 'Monk',    // Zen Meditation
+  122278: 'Monk',    // Dampen Harm
+  122783: 'Monk',    // Diffuse Magic
+  116705: 'Monk',    // Spear Hand Strike
+  152173: 'Monk',    // Serenity
+  123904: 'Monk',    // Invoke Xuen
+  137639: 'Monk',    // Storm, Earth, and Fire
+
+  // Hunter
+  19386: 'Hunter',   // Wyvern Sting
+  3355: 'Hunter',    // Freezing Trap
+  186265: 'Hunter',  // Aspect of the Turtle
+  193530: 'Hunter',  // Aspect of the Wild
+  147362: 'Hunter',  // Counter Shot
+  187707: 'Hunter',  // Muzzle
+  202346: 'Hunter',  // Double Barrel
+  187650: 'Hunter',  // Freezing Trap (alt)
+  162480: 'Hunter',  // Steel Trap
+  264667: 'Hunter',  // Primal Rage
+
+  // Death Knight
+  47528: 'Death Knight',  // Mind Freeze
+  51271: 'Death Knight',  // Pillar of Frost
+  47568: 'Death Knight',  // Empower Rune Weapon
+  319454: 'Death Knight', // Apocalypse
+  48707: 'Death Knight',  // Anti-Magic Shell
+  48792: 'Death Knight',  // Icebound Fortitude
+  48743: 'Death Knight',  // Death Pact
+  49039: 'Death Knight',  // Lichborne
+
+  // Demon Hunter
+  183752: 'Demon Hunter', // Consume Magic
+  198589: 'Demon Hunter', // Blur
+  196555: 'Demon Hunter', // Netherwalk
+  196718: 'Demon Hunter', // Darkness
+  187827: 'Demon Hunter', // Metamorphosis
+
+  // Evoker
+  351338: 'Evoker',  // Quell
+  375087: 'Evoker',  // Dragonrage
+  390386: 'Evoker',  // Fury of the Aspects
+  363916: 'Evoker',  // Obsidian Scales
+  374348: 'Evoker',  // Renewing Blaze
+  374875: 'Evoker',  // Time Spiral
+
+  // Hunter (additions)
+  109304: 'Hunter',  // Exhilaration
+  5384:   'Hunter',  // Feign Death
+
+  // Mage (additions)
+  108978: 'Mage',  // Alter Time
+  110959: 'Mage',  // Greater Invisibility
+  235450: 'Mage',  // Prismatic Barrier
+
+  // Monk (additions)
+  115203: 'Monk',  // Fortifying Brew (Windwalker)
+  243435: 'Monk',  // Fortifying Brew (Mistweaver)
+
+  // Paladin (additions)
+  498:   'Paladin', // Divine Protection
+  31850: 'Paladin', // Ardent Defender
+  1022:  'Paladin', // Blessing of Protection
+  633:   'Paladin', // Lay on Hands
+
+  // Priest (additions)
+  47585: 'Priest',  // Dispersion
+  19236: 'Priest',  // Desperate Prayer
+  62618: 'Priest',  // Power Word: Barrier
+
+  // Rogue (additions)
+  5277: 'Rogue',  // Evasion (primary ID)
+  1856: 'Rogue',  // Vanish
+
+  // Shaman (additions)
+  108271: 'Shaman', // Astral Shift
+  198103: 'Shaman', // Earth Elemental
+  98008:  'Shaman', // Spirit Link Totem
+
+  // Warrior (additions)
+  97462:  'Warrior', // Rallying Cry
+  184364: 'Warrior', // Enraged Regeneration
+}
+
+// ---------------------------------------------------------------------------
+// Spell ID → spec name (short) for spec inference.
+// Only includes spells that are uniquely diagnostic of one spec.
+// Healer specs are inferred separately from healer detection + class.
+// ---------------------------------------------------------------------------
+
+export const SPELL_SPEC_MAP: Readonly<Record<number, string>> = {
+  // Mage
+  190319: 'Fire',       // Combustion
+  12472: 'Frost',       // Icy Veins
+
+  // Rogue
+  13750: 'Outlaw',      // Adrenaline Rush
+
+  // Druid
+  22570: 'Feral',       // Maim
+
+  // Monk
+  137639: 'Windwalker', // Storm, Earth, and Fire
+  152173: 'Windwalker', // Serenity
+  123904: 'Windwalker', // Invoke Xuen
+
+  // Death Knight
+  51271: 'Frost',       // Pillar of Frost
+  319454: 'Unholy',     // Apocalypse
+  47568: 'Unholy',      // Empower Rune Weapon (also Frost but paired above)
+
+  // Priest — only truly spec-exclusive abilities
+  33206: 'Discipline',  // Pain Suppression (Disc only)
+  47788: 'Holy',        // Guardian Spirit (Holy only)
+  // Psychic Scream is baseline for ALL Priest specs — NOT here
+
+  // Warrior
+  107574: 'Arms',       // Avatar (Arms in PvP)
+
+  // Evoker
+  375087: 'Devastation', // Dragonrage
+  390386: 'Devastation', // Fury of the Aspects
+
+  // Demon Hunter — Havoc is the only arena spec
+  183752: 'Havoc',      // Consume Magic
+  // Avenging Wrath removed — used by all Paladin specs
+  // Empower Rune Weapon removed — used by both DK specs
+}
+
+// Healer spec by class — used when a player is confirmed as a healer.
+export const HEALER_SPEC_BY_CLASS: Readonly<Record<string, string>> = {
+  'Druid': 'Restoration',
+  'Paladin': 'Holy',
+  'Priest': 'Discipline', // default; overridden if Guardian Spirit detected
+  'Shaman': 'Restoration',
+  'Monk': 'Mistweaver',
+  'Evoker': 'Preservation',
+}
+
+// ---------------------------------------------------------------------------
+// WoW spec ID → { spec, class } map.
+// Source: https://warcraft.wiki.gg/wiki/SpecializationID
+// Used to resolve COMBATANT_INFO trailing specID field into spec + class names.
+// ---------------------------------------------------------------------------
+export const WOW_SPEC_ID_MAP: Readonly<Record<number, { spec: string; class: string; isHealer: boolean }>> = {
+  // Death Knight
+  250: { spec: 'Blood',     class: 'Death Knight', isHealer: false },
+  251: { spec: 'Frost',     class: 'Death Knight', isHealer: false },
+  252: { spec: 'Unholy',    class: 'Death Knight', isHealer: false },
+  // Demon Hunter
+  577: { spec: 'Havoc',     class: 'Demon Hunter', isHealer: false },
+  581: { spec: 'Vengeance', class: 'Demon Hunter', isHealer: false },
+  // Druid
+  102: { spec: 'Balance',      class: 'Druid', isHealer: false },
+  103: { spec: 'Feral',        class: 'Druid', isHealer: false },
+  104: { spec: 'Guardian',     class: 'Druid', isHealer: false },
+  105: { spec: 'Restoration',  class: 'Druid', isHealer: true  },
+  // Evoker
+  1467: { spec: 'Devastation', class: 'Evoker', isHealer: false },
+  1468: { spec: 'Preservation',class: 'Evoker', isHealer: true  },
+  1473: { spec: 'Augmentation',class: 'Evoker', isHealer: false },
+  // Hunter
+  253: { spec: 'Beast Mastery',   class: 'Hunter', isHealer: false },
+  254: { spec: 'Marksmanship',    class: 'Hunter', isHealer: false },
+  255: { spec: 'Survival',        class: 'Hunter', isHealer: false },
+  // Mage
+  62: { spec: 'Arcane', class: 'Mage', isHealer: false },
+  63: { spec: 'Fire',   class: 'Mage', isHealer: false },
+  64: { spec: 'Frost',  class: 'Mage', isHealer: false },
+  // Monk
+  268: { spec: 'Brewmaster', class: 'Monk', isHealer: false },
+  269: { spec: 'Windwalker', class: 'Monk', isHealer: false },
+  270: { spec: 'Mistweaver', class: 'Monk', isHealer: true  },
+  // Paladin
+  65: { spec: 'Holy',         class: 'Paladin', isHealer: true  },
+  66: { spec: 'Protection',   class: 'Paladin', isHealer: false },
+  70: { spec: 'Retribution',  class: 'Paladin', isHealer: false },
+  // Priest
+  256: { spec: 'Discipline', class: 'Priest', isHealer: true  },
+  257: { spec: 'Holy',       class: 'Priest', isHealer: true  },
+  258: { spec: 'Shadow',     class: 'Priest', isHealer: false },
+  // Rogue
+  259: { spec: 'Assassination', class: 'Rogue', isHealer: false },
+  260: { spec: 'Outlaw',        class: 'Rogue', isHealer: false },
+  261: { spec: 'Subtlety',      class: 'Rogue', isHealer: false },
+  // Shaman
+  262: { spec: 'Elemental',   class: 'Shaman', isHealer: false },
+  263: { spec: 'Enhancement', class: 'Shaman', isHealer: false },
+  264: { spec: 'Restoration', class: 'Shaman', isHealer: true  },
+  // Warlock
+  265: { spec: 'Affliction',  class: 'Warlock', isHealer: false },
+  266: { spec: 'Demonology',  class: 'Warlock', isHealer: false },
+  267: { spec: 'Destruction', class: 'Warlock', isHealer: false },
+  // Warrior
+  71: { spec: 'Arms',       class: 'Warrior', isHealer: false },
+  72: { spec: 'Fury',       class: 'Warrior', isHealer: false },
+  73: { spec: 'Protection', class: 'Warrior', isHealer: false },
+}
+
+// ---------------------------------------------------------------------------
+// DR (Diminishing Returns) category map
+// spellId → DR category string. Spells sharing the same category share DR.
+// WoW DR mechanic: 100% → 50% → 25% → immune (4 stages).
+// Flag when a cast would land at immune (≥3 prior applications in the 18s window).
+// DR window: 18 seconds measured from when the AURA expired (SPELL_AURA_REMOVED).
+// ---------------------------------------------------------------------------
+
+export const DR_CATEGORY: Readonly<Record<number, string>> = {
+  // Disorient (Polymorph / Hex family)
+  118: 'disorient',    // Polymorph
+  161355: 'disorient', // Polymorph (Black Cat)
+  28271: 'disorient',  // Polymorph (Turtle)
+  28272: 'disorient',  // Polymorph (Pig)
+  61025: 'disorient',  // Polymorph (Serpent)
+  61305: 'disorient',  // Polymorph (Black Cat)
+  51514: 'disorient',  // Hex
+  211015: 'disorient', // Hex (Skeletal Hatchling)
+  211010: 'disorient', // Hex (Snake)
+  277778: 'disorient', // Hex (Zandalari Tendonripper)
+  3355: 'disorient',   // Freezing Trap
+  187650: 'disorient', // Freezing Trap (alt)
+  19386: 'disorient',  // Wyvern Sting
+  20066: 'disorient',  // Repentance
+  9484: 'disorient',   // Shackle Undead
+  2637: 'disorient',   // Hibernate (Druid)
+
+  // Stun
+  408: 'stun',         // Kidney Shot
+  1833: 'stun',        // Cheap Shot
+  853: 'stun',         // Hammer of Justice
+  119381: 'stun',      // Leg Sweep
+  107570: 'stun',      // Storm Bolt
+  46968: 'stun',       // Shockwave
+  5211: 'stun',        // Bash (Druid)
+  22570: 'stun',       // Maim (Druid)
+  9005: 'stun',        // Pounce (Druid)
+
+  // Incapacitate
+  6770: 'incapacitate', // Sap
+  1776: 'incapacitate', // Gouge
+  710: 'incapacitate',  // Banish
+
+  // Root
+  339: 'root',          // Entangling Roots
+  33395: 'root',        // Freeze (Water Elemental)
+  122: 'root',          // Frost Nova
+
+  // Fear
+  5782: 'fear',         // Fear (Warlock)
+  6358: 'fear',         // Seduction
+  5246: 'fear',         // Intimidating Shout
+  8122: 'fear',         // Psychic Scream
+
+  // Horror
+  64044: 'horror',      // Psychic Horror
+
+  // Cyclone (its own DR category in WoW)
+  33786: 'cyclone',     // Cyclone
+
+  // Blind
+  2094: 'blind',        // Blind
+}
+
+// ---------------------------------------------------------------------------
+// App defaults
+// ---------------------------------------------------------------------------
+
+// HOME is only available in the main process; renderer must never access this.
+// typeof guard prevents a ReferenceError when the renderer imports this module.
+export const DEFAULT_STORAGE_PATH = `${(typeof process !== 'undefined' ? (process.env?.HOME ?? '~') : '~')}/Movies/WoWArenaRecorder`
+export const DEFAULT_VIDEO_BITRATE_KBPS = 8000
+export const DEFAULT_VIDEO_FPS = 30
+// Directory that holds WoW combat logs (relative to wowPath)
+export const COMBAT_LOG_RELATIVE_DIR = '_retail_/Logs'
+// Glob pattern used to watch for any WoWCombatLog file (fixed name or timestamped)
+export const COMBAT_LOG_GLOB = 'WoWCombatLog*.txt'
+// Legacy: kept for tests that reference the old constant
+export const COMBAT_LOG_RELATIVE_PATH = '_retail_/Logs/WoWCombatLog.txt'
+
+// Default AVFoundation capture device — "Capture screen 0" resolves to the main
+// screen regardless of how many cameras are attached (camera index shifts when
+// a Continuity Camera / external webcam is connected). We store the *index* as
+// a string because FFmpeg requires -i "<videoIdx>:<audioIdx>".
+// On first launch the app enumerates devices and overwrites this with the real index.
+export const DEFAULT_CAPTURE_DEVICE = 'Capture screen 0'
+export const DEFAULT_AUDIO_DEVICE: null = null  // null = no audio; set to AVFoundation audio device index to enable
+export const DEFAULT_VIDEO_RESOLUTION = 'native'
+export const ADDON_RELATIVE_PATH = '_retail_/Interface/AddOns/SimpleCombatLogger'
