@@ -30,7 +30,7 @@
     "vue-router": "^4.3.0"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
+    "@eslint/js": "^9.0.0",
     "@types/fluent-ffmpeg": "^2.1.0",
     "@types/node": "^20.0.0",
     "@vitejs/plugin-vue": "^5.0.0",
