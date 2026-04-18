@@ -127,7 +127,7 @@ const derivedTeams = computed(() => {
 })
 
 function handleSeek(time: number): void {
-  seekTo(time)
+  seekTo(Math.max(0, time - 2))
 }
 
 const EVENT_TYPE_LABEL: Record<string, string> = {
