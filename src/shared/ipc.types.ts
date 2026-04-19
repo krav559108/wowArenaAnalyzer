@@ -27,6 +27,13 @@ export type TimelineEventType =
   | 'cc-break'
   | 'trinket'
 
+export interface DeathHit {
+  spellId?: number
+  spellName: string
+  amount: number
+  relSecs: number  // seconds before death (0 = at death moment, negative = before)
+}
+
 export interface TimelineEvent {
   timestamp: number // seconds from recording start
   type: TimelineEventType
@@ -41,6 +48,7 @@ export interface TimelineEvent {
   unusedDefensives?: string[]  // defensives that were off cooldown at time of death (local player only)
   isMistake?: boolean   // flagged as a mistake (e.g. DR-immune CC)
   mistakeReason?: string // human-readable reason, e.g. "DR immune"
+  deathSummary?: DeathHit[]  // last 3 seconds of incoming damage (death events only)
 }
 
 // ---------------------------------------------------------------------------
@@ -63,6 +71,13 @@ export interface RecordingMetadata {
   // names of confirmed healers (from SPELL_HEAL cross-heals + specId)
   healerNames: string[]
   rating: { before: number; after: number } | null
+  // name → personal rating from COMBATANT_INFO (populated at match start)
+  playerRatings?: Record<string, number>
+  // Per-second cumulative damage for line charts (index = second from match start)
+  teamDmgBySecond?: number[]
+  enemyDmgBySecond?: number[]
+  teamHealBySecond?: number[]
+  enemyHealBySecond?: number[]
   // Solo Shuffle only
   round?: number
   sessionId?: string

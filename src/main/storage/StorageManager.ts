@@ -262,7 +262,12 @@ export function buildMetadata(
     knownSpecs: event.knownSpecs,
     healerNames: event.healerNames,
     rating: null,
-    events: timeline
+    events: timeline,
+    playerRatings: Object.keys(event.playerRatings).length > 0 ? event.playerRatings : undefined,
+    teamDmgBySecond: event.teamDmgBySecond.length > 0 ? event.teamDmgBySecond : undefined,
+    enemyDmgBySecond: event.enemyDmgBySecond.length > 0 ? event.enemyDmgBySecond : undefined,
+    teamHealBySecond: event.teamHealBySecond.length > 0 ? event.teamHealBySecond : undefined,
+    enemyHealBySecond: event.enemyHealBySecond.length > 0 ? event.enemyHealBySecond : undefined
   }
 
   if (event.bracket === 'solo-shuffle') {

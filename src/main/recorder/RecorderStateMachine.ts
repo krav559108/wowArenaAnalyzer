@@ -12,7 +12,7 @@
 import { EventEmitter } from 'events'
 import { join } from 'path'
 import type { ArenaBracket, ArenaResult, RecorderStatus, TimelineEvent } from '@shared/ipc.types'
-import { SPELL_CLASS_MAP, DR_CATEGORY, WOW_SPEC_ID_MAP } from '@shared/constants'
+import { SPELL_CLASS_MAP, DR_CATEGORY, WOW_SPEC_ID_MAP, SOLO_SHUFFLE_ROUNDS_PER_SESSION } from '@shared/constants'
 import { getClassDefensives, type WowClass } from '@shared/classAbilities'
 import type { CombatLogWatcher } from '../combatlog/CombatLogWatcher'
 import type { RecorderOptions, ScreenRecorder } from './ScreenRecorder'
@@ -23,7 +23,9 @@ import type {
   SpellAuraEvent,
   UnitDiedEvent,
   HealerCastEvent,
-  CombatantInfoEvent
+  CombatantInfoEvent,
+  SpellDamageEvent,
+  SpellHealAmountEvent
 } from '../combatlog/CombatLogParser'
 import { UNIT_FLAG_REACTION_HOSTILE } from '../combatlog/CombatLogParser'
 
@@ -59,6 +61,13 @@ export interface ProcessingRequiredEvent {
   knownSpecs: Record<string, string>
   // confirmed healer names
   healerNames: string[]
+  // name → personal rating from COMBATANT_INFO
+  playerRatings: Record<string, number>
+  // Per-second cumulative damage arrays for line charts
+  teamDmgBySecond: number[]
+  enemyDmgBySecond: number[]
+  teamHealBySecond: number[]
+  enemyHealBySecond: number[]
   // Solo Shuffle only
   roundNumber?: number
   sessionId?: string
@@ -88,6 +97,18 @@ interface ActiveCC {
   timelineIndex: number
 }
 
+interface DamageHit {
+  relSecs: number
+  spellId?: number
+  spellName: string
+  amount: number
+}
+
+interface DmgSample {
+  sec: number
+  total: number
+}
+
 interface SessionContext {
   zoneId: number
   zoneName: string
@@ -112,6 +133,27 @@ interface SessionContext {
   healerNames: Map<string, string>
   // playerName → spec string from COMBATANT_INFO specId
   knownSpecs: Map<string, string>
+
+  // --- Per-session (not cleared per round) ---
+  // GUID → { specId, personalRating, team } — deferred COMBATANT_INFO resolution when name was unknown
+  pendingCombatantByGuid: Map<string, { specId: number | null; personalRating: number; team: number }>
+  // GUID → WoW team (0=enemy, 1=local player's team) from COMBATANT_INFO
+  guidTeams: Map<string, number>
+  // playerName → personal rating from COMBATANT_INFO
+  playerRatings: Map<string, number>
+
+  // --- Per-round damage/heal tracking (cleared on ARENA_MATCH_START) ---
+  // Last 5 seconds of incoming damage per target GUID for death summary
+  recentDamageByGuid: Map<string, DamageHit[]>
+  // Cumulative damage/heal samples per team for line charts
+  teamDmgAccum: number
+  enemyDmgAccum: number
+  teamHealAccum: number
+  enemyHealAccum: number
+  teamDmgSamples: DmgSample[]
+  enemyDmgSamples: DmgSample[]
+  teamHealSamples: DmgSample[]
+  enemyHealSamples: DmgSample[]
 }
 
 // ---------------------------------------------------------------------------
@@ -196,6 +238,8 @@ export class RecorderStateMachine extends EventEmitter {
     this.watcher.onParser('spellAuraRemoved', (e) => this.onAuraRemoved(e))
     this.watcher.onParser('healerCast', (e) => this.onHealerCast(e))
     this.watcher.onParser('combatantInfo', (e) => this.onCombatantInfo(e))
+    this.watcher.onParser('spellDamage', (e) => this.onSpellDamage(e))
+    this.watcher.onParser('spellHealAmount', (e) => this.onSpellHealAmount(e))
   }
 
   private bindRecorderEvents(): void {
@@ -241,7 +285,15 @@ export class RecorderStateMachine extends EventEmitter {
       drCounters: new Map(),
       healerGuids: new Set(),
       healerNames: new Map(),
-      knownSpecs: new Map()
+      knownSpecs: new Map(),
+      pendingCombatantByGuid: new Map(),
+      guidTeams: new Map(),
+      playerRatings: new Map(),
+      recentDamageByGuid: new Map(),
+      teamDmgAccum: 0, enemyDmgAccum: 0,
+      teamHealAccum: 0, enemyHealAccum: 0,
+      teamDmgSamples: [], enemyDmgSamples: [],
+      teamHealSamples: [], enemyHealSamples: []
     }
 
     this.transitionTo('waiting', e.zoneName)
@@ -286,7 +338,15 @@ export class RecorderStateMachine extends EventEmitter {
         drCounters: new Map(),
         healerGuids: new Set(),
         healerNames: new Map(),
-        knownSpecs: new Map()
+        knownSpecs: new Map(),
+        pendingCombatantByGuid: new Map(),
+        guidTeams: new Map(),
+        playerRatings: new Map(),
+        recentDamageByGuid: new Map(),
+        teamDmgAccum: 0, enemyDmgAccum: 0,
+        teamHealAccum: 0, enemyHealAccum: 0,
+        teamDmgSamples: [], enemyDmgSamples: [],
+        teamHealSamples: [], enemyHealSamples: []
       }
       this.transitionTo('waiting', e.zoneName)
       void this.startRecorder()
@@ -303,6 +363,11 @@ export class RecorderStateMachine extends EventEmitter {
     this.session.playerCooldowns = new Map()
     this.session.activeCCs = new Map()
     this.session.drCounters = new Map()
+    this.session.recentDamageByGuid = new Map()
+    this.session.teamDmgAccum = 0; this.session.enemyDmgAccum = 0
+    this.session.teamHealAccum = 0; this.session.enemyHealAccum = 0
+    this.session.teamDmgSamples = []; this.session.enemyDmgSamples = []
+    this.session.teamHealSamples = []; this.session.enemyHealSamples = []
 
     this.transitionTo('recording', this.session.zoneName)
     console.warn(
@@ -333,14 +398,33 @@ export class RecorderStateMachine extends EventEmitter {
       return
     }
 
-    this.transitionTo('processing', zoneName)
-
     const timeline = [...this.session.pendingTimeline]
     const knownSpecs = Object.fromEntries(this.session.knownSpecs)
     const healerNames = [...this.session.healerNames.keys()]
+    const playerRatings = Object.fromEntries(this.session.playerRatings)
+    const teamDmgBySecond = buildChartBySecond(this.session.teamDmgSamples, durationSecs)
+    const enemyDmgBySecond = buildChartBySecond(this.session.enemyDmgSamples, durationSecs)
+    const teamHealBySecond = buildChartBySecond(this.session.teamHealSamples, durationSecs)
+    const enemyHealBySecond = buildChartBySecond(this.session.enemyHealSamples, durationSecs)
 
-    void this.recorder
-      .stop()
+    // recorder.stop() clears ffmpegProcess synchronously, so the next startRecorder()
+    // call won't conflict even if FFmpeg hasn't fully exited yet.
+    const stopPromise = this.recorder.stop()
+
+    if (isSoloShuffle && roundNumber < SOLO_SHUFFLE_ROUNDS_PER_SESSION && this.session !== null) {
+      // Immediately prepare for the next round without waiting for FFmpeg to finalize.
+      // This ensures ARENA_MATCH_START for round N+1 is not missed while we're in
+      // the 'processing' state.
+      this.session.matchStartedAt = null
+      this.session.rawOutputPath = null
+      this.session.pendingTimeline = []
+      this.transitionTo('waiting', zoneName)
+      void this.startRecorder()
+    } else {
+      this.transitionTo('processing', zoneName)
+    }
+
+    void stopPromise
       .then((finalPath) => {
         this.emit('processingRequired', {
           rawPath: finalPath,
@@ -353,25 +437,27 @@ export class RecorderStateMachine extends EventEmitter {
           timeline,
           knownSpecs,
           healerNames,
+          playerRatings,
+          teamDmgBySecond,
+          enemyDmgBySecond,
+          teamHealBySecond,
+          enemyHealBySecond,
           roundNumber: isSoloShuffle ? roundNumber : undefined,
           sessionId: isSoloShuffle ? sessionId : undefined
         })
 
-        if (isSoloShuffle && this.session !== null) {
-          // Reset per-round fields and start recording for the next round
-          this.session.matchStartedAt = null
-          this.session.rawOutputPath = null
-          this.session.pendingTimeline = []
-          this.transitionTo('waiting', zoneName)
-          void this.startRecorder()
-        } else {
-          // 2v2 / 3v3 — done. Zone exit will drive us back to idle.
+        if (!isSoloShuffle || roundNumber >= SOLO_SHUFFLE_ROUNDS_PER_SESSION) {
+          // 2v2 / 3v3, or last Solo Shuffle round — done.
           this.session = null
           this.transitionTo('idle')
         }
+        // For mid-session Solo Shuffle rounds, we already transitioned to 'waiting' above.
       })
       .catch((err: Error) => {
         console.error('[StateMachine] recorder.stop() failed:', err.message)
+        if (isSoloShuffle && roundNumber < SOLO_SHUFFLE_ROUNDS_PER_SESSION) {
+          void this.abortRecorder()
+        }
         this.session = null
         this.transitionTo('error')
         this.emit('error', { message: `Failed to stop recording: ${err.message}` })
@@ -430,6 +516,10 @@ export class RecorderStateMachine extends EventEmitter {
     const relSecs = (e.timestamp.getTime() - this.session.matchStartedAt.getTime()) / 1000
     const isEnemy = (e.targetFlags & UNIT_FLAG_REACTION_HOSTILE) !== 0
 
+    // Resolve any deferred COMBATANT_INFO for caster and target
+    if (e.casterName) this.tryResolvePendingCombatant(e.casterGuid, e.casterName)
+    if (e.targetName) this.tryResolvePendingCombatant(e.targetGuid, e.targetName)
+
     // Infer caster class from the spell ID.
     const inferredClass = SPELL_CLASS_MAP[e.spellId] as WowClass | undefined
     if (inferredClass !== undefined && e.casterName) {
@@ -470,6 +560,18 @@ export class RecorderStateMachine extends EventEmitter {
       }
     }
 
+    // Burst without healer CC'd — our team uses offensive CD while no enemy healer is controlled
+    if (!isMistake && e.eventCategory === 'offensive' && isEnemy && this.session.healerGuids.size > 0) {
+      const anyHealerCCd = [...this.session.activeCCs.keys()].some((key) => {
+        const guid = key.split(':')[0] ?? ''
+        return this.session!.healerGuids.has(guid)
+      })
+      if (!anyHealerCCd) {
+        isMistake = true
+        mistakeReason = "No healer CC'd during burst"
+      }
+    }
+
     this.session.pendingTimeline.push({
       timestamp: relSecs,
       type: e.eventCategory,
@@ -492,12 +594,56 @@ export class RecorderStateMachine extends EventEmitter {
   }
 
   private onCombatantInfo(e: CombatantInfoEvent): void {
-    if (this.session === null || e.playerName === '' || e.specId === null) return
-    const entry = (WOW_SPEC_ID_MAP as Record<number, { spec: string; class: string; isHealer: boolean }>)[e.specId]
-    if (entry === undefined) return
-    this.session.knownSpecs.set(e.playerName, entry.spec)
-    if (entry.isHealer) {
-      this.session.healerNames.set(e.playerName, e.playerGuid)
+    if (this.session === null) return
+
+    // Store team assignment by GUID for chart damage attribution
+    this.session.guidTeams.set(e.playerGuid, e.team)
+
+    // Always cache deferred COMBATANT_INFO — name may not be in GUID cache yet at match start
+    this.session.pendingCombatantByGuid.set(e.playerGuid, {
+      specId: e.specId,
+      personalRating: e.personalRating,
+      team: e.team
+    })
+
+    // If name is already known, resolve immediately
+    if (e.playerName !== '') {
+      this.resolveCombatantInfo(e.playerGuid, e.playerName, e.specId, e.personalRating)
+    }
+  }
+
+  // Called when COMBATANT_INFO was deferred and we now know the player's name
+  private tryResolvePendingCombatant(guid: string, name: string): void {
+    if (this.session === null || name === '') return
+    const pending = this.session.pendingCombatantByGuid.get(guid)
+    if (pending === undefined) return
+    this.session.pendingCombatantByGuid.delete(guid)
+    this.resolveCombatantInfo(guid, name, pending.specId, pending.personalRating)
+  }
+
+  private resolveCombatantInfo(
+    guid: string,
+    name: string,
+    specId: number | null,
+    personalRating: number
+  ): void {
+    if (this.session === null) return
+
+    if (specId !== null) {
+      const entry = (WOW_SPEC_ID_MAP as Record<number, { spec: string; class: string; isHealer: boolean }>)[specId]
+      if (entry !== undefined) {
+        this.session.knownSpecs.set(name, entry.spec)
+        // Also update playerClassInferred so "could use" works immediately
+        this.playerClassInferred.set(name, entry.class as WowClass)
+        if (entry.isHealer) {
+          this.session.healerGuids.add(guid)
+          this.session.healerNames.set(name, guid)
+        }
+      }
+    }
+
+    if (personalRating > 0) {
+      this.session.playerRatings.set(name, personalRating)
     }
   }
 
@@ -580,16 +726,88 @@ export class RecorderStateMachine extends EventEmitter {
       this.localPlayerName !== null &&
       e.unitName.toLowerCase() === this.localPlayerName.toLowerCase()
 
+    // If class not inferred from spells yet, derive from COMBATANT_INFO spec
+    if (!this.playerClassInferred.has(e.unitName)) {
+      const spec = this.session.knownSpecs.get(e.unitName)
+      if (spec !== undefined) {
+        for (const entry of Object.values(WOW_SPEC_ID_MAP)) {
+          if (entry.spec === spec) {
+            this.playerClassInferred.set(e.unitName, entry.class as WowClass)
+            break
+          }
+        }
+      }
+    }
+
     const unusedDefensives = isLocalPlayer
       ? computeUnusedDefensives(e.unitName, relSecs, this.playerClassInferred, this.session.playerCooldowns, false)
       : []
+
+    // Collect last 3 seconds of incoming damage for death summary
+    const recentHits = this.session.recentDamageByGuid.get(e.unitGuid) ?? []
+    const deathSummary = recentHits
+      .filter((h) => relSecs - h.relSecs <= 3)
+      .map((h) => ({ ...h, relSecs: parseFloat((h.relSecs - relSecs).toFixed(2)) }))
 
     this.session.pendingTimeline.push({
       timestamp: relSecs,
       type: isEnemy ? 'death-enemy' : 'death-player',
       unit: e.unitName,
-      unusedDefensives: unusedDefensives.length > 0 ? unusedDefensives : undefined
+      unusedDefensives: unusedDefensives.length > 0 ? unusedDefensives : undefined,
+      deathSummary: deathSummary.length > 0 ? deathSummary : undefined
     })
+  }
+
+  private onSpellDamage(e: SpellDamageEvent): void {
+    if (this.status !== 'recording' || this.session === null || this.session.matchStartedAt === null)
+      return
+
+    // Resolve any deferred COMBATANT_INFO
+    if (e.casterName) this.tryResolvePendingCombatant(e.casterGuid, e.casterName)
+
+    const relSecs = (e.timestamp.getTime() - this.session.matchStartedAt.getTime()) / 1000
+    if (relSecs < 0) return
+
+    // Track damage for death summary (sliding 5-second window per target)
+    const hits = this.session.recentDamageByGuid.get(e.targetGuid) ?? []
+    hits.push({ relSecs, spellId: e.spellId, spellName: e.spellName, amount: e.amount })
+    // Trim to last 5 seconds
+    const cutoff = relSecs - 5
+    const trimmed = cutoff > 0 ? hits.filter((h) => h.relSecs >= cutoff) : hits
+    this.session.recentDamageByGuid.set(e.targetGuid, trimmed)
+
+    // Track damage for team charts — use GUID team assignment from COMBATANT_INFO
+    const sec = Math.floor(relSecs)
+    const team = this.session.guidTeams.get(e.casterGuid)
+    if (team === 1) {
+      // Local player's team
+      this.session.teamDmgAccum += e.amount
+      this.session.teamDmgSamples.push({ sec, total: this.session.teamDmgAccum })
+    } else if (team === 0) {
+      // Enemy team
+      this.session.enemyDmgAccum += e.amount
+      this.session.enemyDmgSamples.push({ sec, total: this.session.enemyDmgAccum })
+    }
+  }
+
+  private onSpellHealAmount(e: SpellHealAmountEvent): void {
+    if (this.status !== 'recording' || this.session === null || this.session.matchStartedAt === null)
+      return
+
+    if (e.casterName) this.tryResolvePendingCombatant(e.casterGuid, e.casterName)
+
+    const relSecs = (e.timestamp.getTime() - this.session.matchStartedAt.getTime()) / 1000
+    if (relSecs < 0) return
+
+    const sec = Math.floor(relSecs)
+    const team = this.session.guidTeams.get(e.casterGuid)
+    if (team === 1) {
+      this.session.teamHealAccum += e.amount
+      this.session.teamHealSamples.push({ sec, total: this.session.teamHealAccum })
+    } else if (team === 0) {
+      this.session.enemyHealAccum += e.amount
+      this.session.enemyHealSamples.push({ sec, total: this.session.enemyHealAccum })
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -648,6 +866,27 @@ function computeUnusedDefensives(
   }
 
   return available
+}
+
+// Converts a list of {sec, total} samples into a per-second cumulative array.
+// Index = second from match start, value = cumulative damage/heal at that second.
+function buildChartBySecond(samples: Array<{ sec: number; total: number }>, durationSecs: number): number[] {
+  if (samples.length === 0) return []
+  const maxSec = Math.ceil(durationSecs)
+  const result: number[] = new Array(maxSec + 1).fill(0)
+  for (const s of samples) {
+    if (s.sec <= maxSec) {
+      result[s.sec] = Math.max(result[s.sec] ?? 0, s.total)
+    }
+  }
+  // Forward-fill: each second should have at least the previous second's value
+  let prev = 0
+  for (let i = 0; i <= maxSec; i++) {
+    const v = result[i] ?? 0
+    result[i] = Math.max(v, prev)
+    prev = result[i] ?? 0
+  }
+  return result
 }
 
 function buildRawPath(dir: string, zone: string, sessionId: string, round: number): string {

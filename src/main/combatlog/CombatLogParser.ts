@@ -65,11 +65,16 @@ const MATCH_END_FIELD_DURATION = 1
 // ---------------------------------------------------------------------------
 const SPELL_FIELD_CASTER_GUID = 0
 const SPELL_FIELD_CASTER_NAME = 1
+const SPELL_FIELD_CASTER_FLAGS = 2
 const SPELL_FIELD_TARGET_GUID = 4
 const SPELL_FIELD_TARGET_NAME = 5
 const SPELL_FIELD_TARGET_FLAGS = 6
 const SPELL_FIELD_SPELL_ID = 8
 const SPELL_FIELD_SPELL_NAME = 9
+// After spell prefix (spellId, spellName, spellSchool), damage/heal suffix starts at field 11
+const SPELL_SUFFIX_AMOUNT = 11
+// SWING_DAMAGE has no spell prefix, amount is directly at field 8
+const SWING_DAMAGE_AMOUNT = 8
 
 // ---------------------------------------------------------------------------
 // UNIT_DIED field indices
@@ -170,6 +175,27 @@ export interface HealerCastEvent {
   timestamp: Date
 }
 
+// Fired for SPELL_DAMAGE, SWING_DAMAGE, SPELL_PERIODIC_DAMAGE — used for death summary and team charts
+export interface SpellDamageEvent {
+  casterGuid: string
+  casterName: string
+  casterFlags: number
+  targetGuid: string
+  targetName: string
+  spellId?: number    // undefined for SWING_DAMAGE
+  spellName: string   // 'Auto Attack' for SWING_DAMAGE
+  amount: number
+  timestamp: Date
+}
+
+// Fired for SPELL_HEAL / SPELL_PERIODIC_HEAL — used for team healing charts
+export interface SpellHealAmountEvent {
+  casterGuid: string
+  casterName: string
+  amount: number
+  timestamp: Date
+}
+
 export interface CombatantInfoEvent {
   playerGuid: string
   playerName: string
@@ -209,6 +235,8 @@ export interface ParserEventMap {
   arenaMatchStatsEntry: ArenaMatchStatsEntryEvent
   healerCast: HealerCastEvent
   combatantInfo: CombatantInfoEvent
+  spellDamage: SpellDamageEvent
+  spellHealAmount: SpellHealAmountEvent
 }
 
 // ---------------------------------------------------------------------------
@@ -317,7 +345,15 @@ export class CombatLogParser extends EventEmitter {
         this.handleSpellAura(fields, timestamp, 'spellAuraRemoved')
         break
       case 'SPELL_HEAL':
+      case 'SPELL_PERIODIC_HEAL':
         this.handleSpellHeal(fields, timestamp)
+        break
+      case 'SPELL_DAMAGE':
+      case 'SPELL_PERIODIC_DAMAGE':
+        this.handleSpellDamage(fields, timestamp)
+        break
+      case 'SWING_DAMAGE':
+        this.handleSwingDamage(fields, timestamp)
         break
       case 'UNIT_DIED':
         this.handleUnitDied(fields, timestamp)
@@ -568,11 +604,77 @@ export class CombatLogParser extends EventEmitter {
     const targetGuid = fields[SPELL_FIELD_TARGET_GUID]
     if (casterGuid === undefined || casterName === undefined) return
 
-    // Only count heals cast on OTHER players — self-heals (leech, procs, Healthstone)
-    // are common on DPS specs and must not trigger healer detection.
-    if (targetGuid === casterGuid) return
+    // Emit heal amount event for ALL heals (including self) — used for team heal charts
+    const rawAmount = fields[SPELL_SUFFIX_AMOUNT]
+    const amount = parseInt(rawAmount ?? '0', 10)
+    if (!isNaN(amount) && amount > 0) {
+      this.emit('spellHealAmount', { casterGuid, casterName, amount, timestamp })
+    }
 
+    // Only count heals cast on OTHER players for healer detection — self-heals from
+    // DPS specs (leech, Healthstone) must not trigger healer detection.
+    if (targetGuid === casterGuid) return
     this.emit('healerCast', { casterGuid, casterName, timestamp })
+  }
+
+  private handleSpellDamage(fields: string[], timestamp: Date): void {
+    const casterGuid = fields[SPELL_FIELD_CASTER_GUID]
+    const casterName = fields[SPELL_FIELD_CASTER_NAME]
+    const targetGuid = fields[SPELL_FIELD_TARGET_GUID]
+    const targetName = fields[SPELL_FIELD_TARGET_NAME] ?? ''
+    if (casterGuid === undefined || targetGuid === undefined) return
+
+    // Only track damage between players (Pet/NPC hits are excluded by GUID prefix)
+    if (!targetGuid.startsWith('Player-')) return
+
+    const rawSpellId = fields[SPELL_FIELD_SPELL_ID]
+    const spellId = rawSpellId !== undefined ? parseInt(rawSpellId, 10) : NaN
+    const spellName = fields[SPELL_FIELD_SPELL_NAME] ?? 'Unknown'
+    const rawAmount = fields[SPELL_SUFFIX_AMOUNT]
+    const amount = parseInt(rawAmount ?? '0', 10)
+    if (isNaN(amount) || amount <= 0) return
+
+    const casterFlags = parseHexFlags(fields[SPELL_FIELD_CASTER_FLAGS] ?? '0')
+
+    this.emit('spellDamage', {
+      casterGuid,
+      casterName: casterName ?? '',
+      casterFlags,
+      targetGuid,
+      targetName,
+      spellId: !isNaN(spellId) ? spellId : undefined,
+      spellName,
+      amount,
+      timestamp
+    })
+  }
+
+  private handleSwingDamage(fields: string[], timestamp: Date): void {
+    const casterGuid = fields[SPELL_FIELD_CASTER_GUID]
+    const casterName = fields[SPELL_FIELD_CASTER_NAME]
+    const targetGuid = fields[SPELL_FIELD_TARGET_GUID]
+    const targetName = fields[SPELL_FIELD_TARGET_NAME] ?? ''
+    if (casterGuid === undefined || targetGuid === undefined) return
+
+    if (!targetGuid.startsWith('Player-')) return
+
+    const rawAmount = fields[SWING_DAMAGE_AMOUNT]
+    const amount = parseInt(rawAmount ?? '0', 10)
+    if (isNaN(amount) || amount <= 0) return
+
+    const casterFlags = parseHexFlags(fields[SPELL_FIELD_CASTER_FLAGS] ?? '0')
+
+    this.emit('spellDamage', {
+      casterGuid,
+      casterName: casterName ?? '',
+      casterFlags,
+      targetGuid,
+      targetName,
+      spellId: undefined,
+      spellName: 'Auto Attack',
+      amount,
+      timestamp
+    })
   }
 
   private handleUnitDied(fields: string[], timestamp: Date): void {

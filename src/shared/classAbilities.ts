@@ -61,11 +61,12 @@ export const CLASS_ABILITIES: Readonly<Record<WowClass, ClassAbilityData>> = {
       { spellId: 48707, name: 'Anti-Magic Shell', cooldownSecs: 60 },
       { spellId: 48792, name: 'Icebound Fortitude', cooldownSecs: 180 },
       { spellId: 48743, name: 'Death Pact', cooldownSecs: 120 },
-      { spellId: 49039, name: 'Lichborne', cooldownSecs: 120 },
+      // Lichborne removed from defensives in Midnight — no longer reduces damage, only fear/charm/sleep immunity
       TRINKET,
     ],
     offensive: [
       { spellId: 51271, name: 'Pillar of Frost', cooldownSecs: 60, spec: 'Frost' },
+      { spellId: 279302, name: "Frostwyrm's Fury", cooldownSecs: 180, spec: 'Frost' },
       { spellId: 47568, name: 'Empower Rune Weapon', cooldownSecs: 120 },
       { spellId: 316916, name: 'Apocalypse', cooldownSecs: 90, spec: 'Unholy' },
       { spellId: 42650, name: 'Army of the Dead', cooldownSecs: 600 },
@@ -75,7 +76,7 @@ export const CLASS_ABILITIES: Readonly<Record<WowClass, ClassAbilityData>> = {
   'Demon Hunter': {
     defensive: [
       { spellId: 198589, name: 'Blur', cooldownSecs: 60 },
-      { spellId: 196555, name: 'Netherwalk', cooldownSecs: 180 },
+      // Netherwalk removed in Midnight
       { spellId: 196718, name: 'Darkness', cooldownSecs: 300 },
       TRINKET,
     ],
@@ -109,6 +110,7 @@ export const CLASS_ABILITIES: Readonly<Record<WowClass, ClassAbilityData>> = {
       { spellId: 374348, name: 'Renewing Blaze', cooldownSecs: 90 },
       { spellId: 374875, name: 'Time Spiral', cooldownSecs: 120 },
       { spellId: 370784, name: 'Rescue', cooldownSecs: 60 },
+      { spellId: 370960, name: 'Zephyr', cooldownSecs: 120 },
       TRINKET,
     ],
     offensive: [
@@ -135,17 +137,21 @@ export const CLASS_ABILITIES: Readonly<Record<WowClass, ClassAbilityData>> = {
 
   Mage: {
     defensive: [
-      { spellId: 45438, name: 'Ice Block', cooldownSecs: 240 },
-      { spellId: 108978, name: 'Alter Time', cooldownSecs: 60 },
-      { spellId: 110959, name: 'Greater Invisibility', cooldownSecs: 120 },
-      { spellId: 235450, name: 'Prismatic Barrier', cooldownSecs: 25, spec: 'Arcane' },
+      { spellId: 45438,  name: 'Ice Block',            cooldownSecs: 240 },
+      { spellId: 108978, name: 'Alter Time',            cooldownSecs: 60  },
+      { spellId: 110959, name: 'Greater Invisibility',  cooldownSecs: 120 },
+      { spellId: 414664, name: 'Mass Invisibility',     cooldownSecs: 120 },
+      { spellId: 235450, name: 'Prismatic Barrier',     cooldownSecs: 25, spec: 'Arcane' },
+      { spellId: 11426,  name: 'Ice Barrier',           cooldownSecs: 25, spec: 'Frost'  },
+      { spellId: 235313, name: 'Blazing Barrier',       cooldownSecs: 25, spec: 'Fire'   },
+      // Mirror Image and Cold Snap removed — no PvP impact in Midnight
       TRINKET,
     ],
     offensive: [
-      { spellId: 12472, name: 'Icy Veins', cooldownSecs: 180, spec: 'Frost' },
-      { spellId: 190319, name: 'Combustion', cooldownSecs: 120, spec: 'Fire' },
-      { spellId: 80353, name: 'Time Warp', cooldownSecs: 300 },
-      { spellId: 321507, name: 'Touch of the Magi', cooldownSecs: 45, spec: 'Arcane' },
+      { spellId: 190319, name: 'Combustion',  cooldownSecs: 120, spec: 'Fire'   },
+      { spellId: 205021, name: 'Ray of Frost', cooldownSecs: 60,  spec: 'Frost'  },
+      { spellId: 365350, name: 'Arcane Surge', cooldownSecs: 90,  spec: 'Arcane' },
+      { spellId: 12472,  name: 'Icy Veins',    cooldownSecs: 90,  spec: 'Frost'  },
     ],
   },
 

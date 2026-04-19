@@ -274,6 +274,100 @@ function onKeydown(e: KeyboardEvent): void {
 
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+
+// -------------------------------------------------------------------------
+// Graphs
+// -------------------------------------------------------------------------
+const showGraphs = ref(false)
+
+function buildSvgPath(data: number[], w: number, h: number): string {
+  if (data.length < 2) return ''
+  const maxVal = Math.max(...data)
+  if (maxVal === 0) return ''
+  const pts = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * w
+    const y = h - (v / maxVal) * h
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  })
+  return 'M ' + pts.join(' L ')
+}
+
+function fmtK(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
+  if (n >= 1_000) return (n / 1_000).toFixed(0) + 'K'
+  return String(n)
+}
+
+const dmgTeamPath = computed(() => {
+  const d = props.recording.metadata.teamDmgBySecond
+  return d ? buildSvgPath(d, 560, 80) : ''
+})
+const dmgEnemyPath = computed(() => {
+  const d = props.recording.metadata.enemyDmgBySecond
+  return d ? buildSvgPath(d, 560, 80) : ''
+})
+const healTeamPath = computed(() => {
+  const d = props.recording.metadata.teamHealBySecond
+  return d ? buildSvgPath(d, 560, 80) : ''
+})
+const healEnemyPath = computed(() => {
+  const d = props.recording.metadata.enemyHealBySecond
+  return d ? buildSvgPath(d, 560, 80) : ''
+})
+
+const dmgMaxVal = computed(() => {
+  const t = props.recording.metadata.teamDmgBySecond ?? []
+  const e = props.recording.metadata.enemyDmgBySecond ?? []
+  return Math.max(...t, ...e, 1)
+})
+const healMaxVal = computed(() => {
+  const t = props.recording.metadata.teamHealBySecond ?? []
+  const e = props.recording.metadata.enemyHealBySecond ?? []
+  return Math.max(...t, ...e, 1)
+})
+
+function buildSvgPathNorm(data: number[], maxVal: number, w: number, h: number): string {
+  if (data.length < 2 || maxVal === 0) return ''
+  const pts = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * w
+    const y = h - (v / maxVal) * h
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  })
+  return 'M ' + pts.join(' L ')
+}
+
+const dmgTeamPathNorm = computed(() => {
+  const d = props.recording.metadata.teamDmgBySecond
+  return d ? buildSvgPathNorm(d, dmgMaxVal.value, 560, 80) : ''
+})
+const dmgEnemyPathNorm = computed(() => {
+  const d = props.recording.metadata.enemyDmgBySecond
+  return d ? buildSvgPathNorm(d, dmgMaxVal.value, 560, 80) : ''
+})
+const healTeamPathNorm = computed(() => {
+  const d = props.recording.metadata.teamHealBySecond
+  return d ? buildSvgPathNorm(d, healMaxVal.value, 560, 80) : ''
+})
+const healEnemyPathNorm = computed(() => {
+  const d = props.recording.metadata.enemyHealBySecond
+  return d ? buildSvgPathNorm(d, healMaxVal.value, 560, 80) : ''
+})
+
+const hasDmgData = computed(() =>
+  (props.recording.metadata.teamDmgBySecond?.length ?? 0) > 0 ||
+  (props.recording.metadata.enemyDmgBySecond?.length ?? 0) > 0
+)
+const hasHealData = computed(() =>
+  (props.recording.metadata.teamHealBySecond?.length ?? 0) > 0 ||
+  (props.recording.metadata.enemyHealBySecond?.length ?? 0) > 0
+)
+
+// -------------------------------------------------------------------------
+// Player ratings helper
+// -------------------------------------------------------------------------
+function playerRating(name: string): number | undefined {
+  return props.recording.metadata.playerRatings?.[name]
+}
 </script>
 
 <template>
@@ -301,7 +395,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
     <!-- Playback controls -->
     <div class="flex-shrink-0 px-4 py-2 flex items-center gap-3">
-      <!-- Skip buttons -->
       <button
         class="text-xs text-zinc-400 hover:text-white px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700"
         @click="skip(-10)"
@@ -314,8 +407,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       >
         +10s→
       </button>
-
-      <!-- Speed selector -->
       <div class="flex items-center gap-1">
         <button
           v-for="rate in SPEED_OPTIONS"
@@ -327,8 +418,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           {{ rate }}x
         </button>
       </div>
-
-      <!-- Fullscreen toggle -->
       <button
         class="ml-auto text-xs text-zinc-400 hover:text-white px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700"
         :title="isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'"
@@ -338,48 +427,81 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       </button>
     </div>
 
-    <!-- Match header -->
-    <div class="flex-shrink-0 px-4 pt-1 pb-2 flex items-center gap-3">
-      <div class="flex-1 min-w-0">
-        <h3 class="text-sm font-semibold text-white truncate">
-          {{ zone }}
-          <span
-            v-if="recording.metadata.round !== undefined"
-            class="text-zinc-500 font-normal"
-          > · R{{ recording.metadata.round }}</span>
-        </h3>
-        <p class="text-xs text-zinc-500 mt-0.5">
-          {{ formattedDate }} · {{ formattedDuration }}
-        </p>
+    <!-- Timeline (always visible) -->
+    <div class="flex-shrink-0 px-4 pb-2">
+      <div class="flex items-center justify-between text-xs text-zinc-600 mb-1">
+        <span>{{ currentTimeLabel }}</span>
+        <span>{{ totalTimeLabel }}</span>
       </div>
-      <span
-        class="text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0"
-        :class="{
-          'bg-blue-900 text-blue-300': bracket === '2v2',
-          'bg-purple-900 text-purple-300': bracket === '3v3',
-          'bg-amber-900 text-amber-300': bracket === 'solo-shuffle',
-          'bg-zinc-800 text-zinc-400': bracket === 'skirmish',
-        }"
-      >
-        {{ bracketLabel[bracket] ?? bracket }}
-      </span>
-      <span
-        class="text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0"
-        :class="result === 'WIN' ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-400'"
-      >
-        {{ result }}
-      </span>
-      <template v-if="rating !== null">
-        <span class="text-xs text-zinc-400 flex-shrink-0">
-          {{ rating.before }}
-          <span class="text-zinc-600">→</span>
-          <span :class="rating.after >= rating.before ? 'text-green-400' : 'text-red-400'">{{ rating.after }}</span>
-        </span>
-      </template>
+      <div class="relative w-full select-none">
+        <TimelineCanvas @seek="handleSeek" />
+      </div>
+      <div class="flex flex-wrap gap-x-3 gap-y-1 mt-2">
+        <button
+          v-for="item in legendItems"
+          :key="item.type"
+          class="flex items-center gap-1.5 rounded px-1 py-0.5 transition-opacity"
+          :class="hiddenTypes.has(item.type) ? 'opacity-30' : 'opacity-100 hover:opacity-80'"
+          :title="hiddenTypes.has(item.type) ? 'Show ' + item.label : 'Hide ' + item.label"
+          @click="toggleType(item.type)"
+        >
+          <span
+            class="w-2 h-2 rounded-sm flex-shrink-0"
+            :style="{ backgroundColor: TIMELINE_COLORS[item.type] ?? '#888' }"
+          />
+          <span
+            class="text-xs text-zinc-500"
+            :class="hiddenTypes.has(item.type) ? 'line-through' : ''"
+          >{{ item.label }}</span>
+        </button>
+      </div>
     </div>
 
-    <!-- Scrollable detail -->
-    <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4 space-y-4">
+    <!-- Detail panel — hidden in fullscreen -->
+    <div
+      v-if="!isFullscreen"
+      class="flex-1 min-h-0 overflow-y-auto px-4 pb-4 space-y-4"
+    >
+      <!-- Match header -->
+      <div class="flex items-center gap-3 pt-1">
+        <div class="flex-1 min-w-0">
+          <h3 class="text-sm font-semibold text-white truncate">
+            {{ zone }}
+            <span
+              v-if="recording.metadata.round !== undefined"
+              class="text-zinc-500 font-normal"
+            > · R{{ recording.metadata.round }}</span>
+          </h3>
+          <p class="text-xs text-zinc-500 mt-0.5">
+            {{ formattedDate }} · {{ formattedDuration }}
+          </p>
+        </div>
+        <span
+          class="text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0"
+          :class="{
+            'bg-blue-900 text-blue-300': bracket === '2v2',
+            'bg-purple-900 text-purple-300': bracket === '3v3',
+            'bg-amber-900 text-amber-300': bracket === 'solo-shuffle',
+            'bg-zinc-800 text-zinc-400': bracket === 'skirmish',
+          }"
+        >
+          {{ bracketLabel[bracket] ?? bracket }}
+        </span>
+        <span
+          class="text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0"
+          :class="result === 'WIN' ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-400'"
+        >
+          {{ result }}
+        </span>
+        <template v-if="rating !== null">
+          <span class="text-xs text-zinc-400 flex-shrink-0">
+            {{ rating.before }}
+            <span class="text-zinc-600">→</span>
+            <span :class="rating.after >= rating.before ? 'text-green-400' : 'text-red-400'">{{ rating.after }}</span>
+          </span>
+        </template>
+      </div>
+
       <!-- Teams -->
       <div class="grid grid-cols-2 gap-3">
         <div class="bg-zinc-900 rounded-lg p-3">
@@ -406,6 +528,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             >
               {{ name }}<span v-if="playerSpec(name)" class="text-zinc-500"> ({{ playerSpec(name) }})</span>
             </button>
+            <span
+              v-if="playerRating(name) !== undefined"
+              class="text-[10px] text-zinc-500 flex-shrink-0 ml-1"
+            >{{ playerRating(name) }}</span>
           </div>
           <p
             v-if="derivedTeams.playerTeam.length === 0"
@@ -438,6 +564,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             >
               {{ name }}<span v-if="playerSpec(name)" class="text-zinc-500"> ({{ playerSpec(name) }})</span>
             </button>
+            <span
+              v-if="playerRating(name) !== undefined"
+              class="text-[10px] text-zinc-500 flex-shrink-0 ml-1"
+            >{{ playerRating(name) }}</span>
           </div>
           <p
             v-if="derivedTeams.enemyTeam.length === 0"
@@ -448,36 +578,94 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         </div>
       </div>
 
-      <!-- Timeline -->
-      <div>
-        <p class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
-          Timeline
-        </p>
-        <div class="flex items-center justify-between text-xs text-zinc-600 mb-1">
-          <span>{{ currentTimeLabel }}</span>
-          <span>{{ totalTimeLabel }}</span>
-        </div>
-        <div class="relative w-full select-none">
-          <TimelineCanvas @seek="handleSeek" />
-        </div>
-        <div class="flex flex-wrap gap-x-3 gap-y-1 mt-2">
-          <button
-            v-for="item in legendItems"
-            :key="item.type"
-            class="flex items-center gap-1.5 rounded px-1 py-0.5 transition-opacity"
-            :class="hiddenTypes.has(item.type) ? 'opacity-30' : 'opacity-100 hover:opacity-80'"
-            :title="hiddenTypes.has(item.type) ? 'Show ' + item.label : 'Hide ' + item.label"
-            @click="toggleType(item.type)"
+      <!-- Graphs (collapsible) -->
+      <div v-if="hasDmgData || hasHealData">
+        <button
+          class="flex items-center gap-2 text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 hover:text-zinc-300 w-full text-left"
+          @click="showGraphs = !showGraphs"
+        >
+          <span>Graphs</span>
+          <span class="text-zinc-600">{{ showGraphs ? '▲' : '▼' }}</span>
+        </button>
+        <div
+          v-if="showGraphs"
+          class="space-y-3"
+        >
+          <!-- Damage Done -->
+          <div
+            v-if="hasDmgData"
+            class="bg-zinc-900 rounded-lg p-3"
           >
-            <span
-              class="w-2 h-2 rounded-sm flex-shrink-0"
-              :style="{ backgroundColor: TIMELINE_COLORS[item.type] ?? '#888' }"
-            />
-            <span
-              class="text-xs text-zinc-500"
-              :class="hiddenTypes.has(item.type) ? 'line-through' : ''"
-            >{{ item.label }}</span>
-          </button>
+            <div class="flex items-center justify-between mb-1">
+              <p class="text-xs text-zinc-400 font-medium">
+                Damage Done
+              </p>
+              <div class="flex items-center gap-3 text-[10px]">
+                <span class="flex items-center gap-1"><span class="w-3 h-0.5 bg-[#f0b429] inline-block" />Your Team ({{ fmtK(dmgMaxVal) }})</span>
+                <span class="flex items-center gap-1"><span class="w-3 h-0.5 bg-[#a855f7] inline-block" />Enemy</span>
+              </div>
+            </div>
+            <svg
+              viewBox="0 0 560 80"
+              class="w-full"
+              preserveAspectRatio="none"
+            >
+              <path
+                v-if="dmgTeamPathNorm"
+                :d="dmgTeamPathNorm"
+                stroke="#f0b429"
+                stroke-width="1.5"
+                fill="none"
+                stroke-linejoin="round"
+              />
+              <path
+                v-if="dmgEnemyPathNorm"
+                :d="dmgEnemyPathNorm"
+                stroke="#a855f7"
+                stroke-width="1.5"
+                fill="none"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </div>
+
+          <!-- Healing Done -->
+          <div
+            v-if="hasHealData"
+            class="bg-zinc-900 rounded-lg p-3"
+          >
+            <div class="flex items-center justify-between mb-1">
+              <p class="text-xs text-zinc-400 font-medium">
+                Healing Done
+              </p>
+              <div class="flex items-center gap-3 text-[10px]">
+                <span class="flex items-center gap-1"><span class="w-3 h-0.5 bg-[#22c55e] inline-block" />Your Team ({{ fmtK(healMaxVal) }})</span>
+                <span class="flex items-center gap-1"><span class="w-3 h-0.5 bg-[#ef4444] inline-block" />Enemy</span>
+              </div>
+            </div>
+            <svg
+              viewBox="0 0 560 80"
+              class="w-full"
+              preserveAspectRatio="none"
+            >
+              <path
+                v-if="healTeamPathNorm"
+                :d="healTeamPathNorm"
+                stroke="#22c55e"
+                stroke-width="1.5"
+                fill="none"
+                stroke-linejoin="round"
+              />
+              <path
+                v-if="healEnemyPathNorm"
+                :d="healEnemyPathNorm"
+                stroke="#ef4444"
+                stroke-width="1.5"
+                fill="none"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </div>
         </div>
       </div>
 
@@ -566,6 +754,25 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                 :key="def"
                 class="bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded"
               >{{ def }}</span>
+            </div>
+
+            <!-- Death Summary — last 3 seconds of incoming damage -->
+            <div
+              v-if="(ev.type === 'death-player' || ev.type === 'death-enemy') && ev.deathSummary && ev.deathSummary.length > 0"
+              class="mt-1 ml-12 border-l border-zinc-700 pl-2 pb-0.5"
+            >
+              <p class="text-[10px] text-zinc-500 mb-0.5">
+                Last 3s incoming damage:
+              </p>
+              <div
+                v-for="(hit, hi) in ev.deathSummary"
+                :key="hi"
+                class="flex items-center gap-1.5 text-[10px] text-zinc-400"
+              >
+                <span class="tabular-nums text-zinc-600 w-8 flex-shrink-0">{{ hit.relSecs.toFixed(1) }}s</span>
+                <span class="truncate">{{ hit.spellName }}</span>
+                <span class="ml-auto text-red-400 tabular-nums flex-shrink-0">{{ hit.amount.toLocaleString() }}</span>
+              </div>
             </div>
           </div>
 

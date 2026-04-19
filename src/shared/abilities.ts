@@ -17,13 +17,19 @@ export const CLASS_ABILITIES: Readonly<Record<string, ClassAbilities>> = {
     defensive: [
       { spellId: 45438,  name: 'Ice Block',            cooldown: 240 },
       { spellId: 110959, name: 'Greater Invisibility',  cooldown: 120 },
-      { spellId: 55342,  name: 'Mirror Image',          cooldown: 120 },
-      { spellId: 235219, name: 'Cold Snap',             cooldown: 240 },
+      { spellId: 108978, name: 'Alter Time',            cooldown: 60  },
+      { spellId: 414664, name: 'Mass Invisibility',     cooldown: 120 },
+      // Barrier (spec-specific): Prismatic (Arcane), Ice (Frost), Blazing (Fire)
+      { spellId: 235450, name: 'Prismatic Barrier',     cooldown: 25  },
+      { spellId: 11426,  name: 'Ice Barrier',           cooldown: 25  },
+      { spellId: 235313, name: 'Blazing Barrier',       cooldown: 25  },
+      // Mirror Image and Cold Snap removed — passive/no PvP impact in Midnight
     ],
     offensive: [
-      { spellId: 190319, name: 'Combustion',  cooldown: 120 },
-      { spellId: 12472,  name: 'Icy Veins',   cooldown: 90  },
-      { spellId: 80353,  name: 'Time Warp',   cooldown: 300 },
+      { spellId: 190319, name: 'Combustion',   cooldown: 120 },
+      { spellId: 205021, name: 'Ray of Frost',  cooldown: 60  },
+      { spellId: 365350, name: 'Arcane Surge',  cooldown: 90  },
+      { spellId: 12472,  name: 'Icy Veins',     cooldown: 90  },
     ],
   },
 

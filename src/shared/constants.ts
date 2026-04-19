@@ -133,6 +133,9 @@ export const SPELL_IDS_DEFENSIVE: ReadonlySet<number> = new Set([
   108978, // Alter Time
   110959, // Greater Invisibility
   235450, // Prismatic Barrier (Arcane)
+  414664, // Mass Invisibility
+  11426,  // Ice Barrier (Frost)
+  235313, // Blazing Barrier (Fire)
   // Hunter
   186265, // Aspect of the Turtle
   109304, // Exhilaration
@@ -177,16 +180,17 @@ export const SPELL_IDS_DEFENSIVE: ReadonlySet<number> = new Set([
   48707, // Anti-Magic Shell
   48792, // Icebound Fortitude
   48743, // Death Pact
-  49039, // Lichborne
+  // 49039 Lichborne — removed from defensives in Midnight (no longer reduces damage)
   // Demon Hunter
   198589, // Blur
-  196555, // Netherwalk
+  // 196555 Netherwalk — removed in Midnight
   196718, // Darkness
   // Evoker
   363916, // Obsidian Scales
   374348, // Renewing Blaze
   374875, // Time Spiral
   370784, // Rescue
+  370960, // Zephyr
 ])
 
 // ---------------------------------------------------------------------------
@@ -200,6 +204,8 @@ export const SPELL_IDS_OFFENSIVE: ReadonlySet<number> = new Set([
   264667, // Primal Rage (Hunter — BM)
   390386, // Fury of the Aspects (Evoker)
   12472, // Icy Veins (Mage)
+  205021, // Ray of Frost (Mage - Frost)
+  365350, // Arcane Surge (Mage - Arcane)
   13750, // Adrenaline Rush (Rogue)
   51271, // Pillar of Frost (DK)
   31884, // Avenging Wrath (Paladin)
@@ -212,7 +218,8 @@ export const SPELL_IDS_OFFENSIVE: ReadonlySet<number> = new Set([
   152173, // Serenity (Monk)
   123904, // Invoke Xuen (Monk)
   137639, // Storm, Earth, and Fire (Monk)
-  375087 // Dragonrage (Evoker)
+  375087, // Dragonrage (Evoker)
+  279302, // Frostwyrm's Fury (DK Frost)
 ])
 
 // ---------------------------------------------------------------------------
@@ -352,17 +359,17 @@ export const SPELL_CLASS_MAP: Readonly<Record<number, string>> = {
   // Death Knight
   47528: 'Death Knight',  // Mind Freeze
   51271: 'Death Knight',  // Pillar of Frost
+  279302: 'Death Knight', // Frostwyrm's Fury
   47568: 'Death Knight',  // Empower Rune Weapon
   319454: 'Death Knight', // Apocalypse
   48707: 'Death Knight',  // Anti-Magic Shell
   48792: 'Death Knight',  // Icebound Fortitude
   48743: 'Death Knight',  // Death Pact
-  49039: 'Death Knight',  // Lichborne
 
   // Demon Hunter
   183752: 'Demon Hunter', // Consume Magic
   198589: 'Demon Hunter', // Blur
-  196555: 'Demon Hunter', // Netherwalk
+  // 196555 Netherwalk removed in Midnight
   196718: 'Demon Hunter', // Darkness
   187827: 'Demon Hunter', // Metamorphosis
 
@@ -373,6 +380,7 @@ export const SPELL_CLASS_MAP: Readonly<Record<number, string>> = {
   363916: 'Evoker',  // Obsidian Scales
   374348: 'Evoker',  // Renewing Blaze
   374875: 'Evoker',  // Time Spiral
+  370960: 'Evoker',  // Zephyr
 
   // Hunter (additions)
   109304: 'Hunter',  // Exhilaration
@@ -382,6 +390,11 @@ export const SPELL_CLASS_MAP: Readonly<Record<number, string>> = {
   108978: 'Mage',  // Alter Time
   110959: 'Mage',  // Greater Invisibility
   235450: 'Mage',  // Prismatic Barrier
+  414664: 'Mage',  // Mass Invisibility
+  11426:  'Mage',  // Ice Barrier
+  235313: 'Mage',  // Blazing Barrier
+  205021: 'Mage',  // Ray of Frost
+  365350: 'Mage',  // Arcane Surge
 
   // Monk (additions)
   115203: 'Monk',  // Fortifying Brew (Windwalker)
@@ -422,6 +435,10 @@ export const SPELL_SPEC_MAP: Readonly<Record<number, string>> = {
   // Mage
   190319: 'Fire',       // Combustion
   12472: 'Frost',       // Icy Veins
+  205021: 'Frost',      // Ray of Frost
+  365350: 'Arcane',     // Arcane Surge
+  11426:  'Frost',      // Ice Barrier
+  235313: 'Fire',       // Blazing Barrier
 
   // Rogue
   13750: 'Outlaw',      // Adrenaline Rush
@@ -530,8 +547,8 @@ export const WOW_SPEC_ID_MAP: Readonly<Record<number, { spec: string; class: str
 // ---------------------------------------------------------------------------
 // DR (Diminishing Returns) category map
 // spellId → DR category string. Spells sharing the same category share DR.
-// WoW DR mechanic: 100% → 50% → 25% → immune (4 stages).
-// Flag when a cast would land at immune (≥3 prior applications in the 18s window).
+// WoW DR mechanic (Midnight): 100% → 50% → immune (3 stages, reworked from 4 in prior expansions).
+// Flag when a cast would land at immune (≥2 prior applications in the 18s window).
 // DR window: 18 seconds measured from when the AURA expired (SPELL_AURA_REMOVED).
 // ---------------------------------------------------------------------------
 
