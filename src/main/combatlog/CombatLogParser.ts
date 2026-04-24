@@ -77,12 +77,35 @@ const SPELL_SUFFIX_AMOUNT = 11
 const SWING_DAMAGE_AMOUNT = 8
 
 // ---------------------------------------------------------------------------
+// SPELL_INTERRUPT field indices
+// Same prefix layout as SPELL_CAST_SUCCESS, followed by:
+//   interruptSpellId, interruptSpellName, school, interruptedSpellId, interruptedSpellName, interruptedSchool
+// ---------------------------------------------------------------------------
+const INTERRUPT_FIELD_SPELL_ID = 8
+const INTERRUPT_FIELD_SPELL_NAME = 9
+const INTERRUPT_FIELD_INTERRUPTED_SPELL_ID = 11
+const INTERRUPT_FIELD_INTERRUPTED_SPELL_NAME = 12
+
+// Precognition buff — applied when an interrupt is used on a player who wasn't casting
+// (or was immune). Used to detect bad/wasted interrupts.
+const PRECOGNITION_SPELL_ID = 377362
+
+// ---------------------------------------------------------------------------
 // UNIT_DIED field indices
 // srcGUID, srcName, srcFlags, srcRaidFlags, destGUID, destName, destFlags, destRaidFlags, unconscious
 // ---------------------------------------------------------------------------
 const UNIT_DIED_FIELD_DEST_GUID = 4
 const UNIT_DIED_FIELD_DEST_NAME = 5
 const UNIT_DIED_FIELD_DEST_FLAGS = 6
+
+// ---------------------------------------------------------------------------
+// UNIT_HEALTH field indices (Advanced Combat Logging only)
+// srcGUID, srcName, srcFlags, srcRaidFlags, destGUID, destName, destFlags, destRaidFlags, hp, maxHp
+// ---------------------------------------------------------------------------
+const UNIT_HEALTH_FIELD_UNIT_GUID = 4
+const UNIT_HEALTH_FIELD_UNIT_NAME = 5
+const UNIT_HEALTH_FIELD_HP = 8
+const UNIT_HEALTH_FIELD_MAX_HP = 9
 
 // WoW combat log unit flag bit — set when the unit is on the hostile/enemy team.
 const UNIT_FLAG_REACTION_HOSTILE = 0x40
@@ -196,6 +219,29 @@ export interface SpellHealAmountEvent {
   timestamp: Date
 }
 
+// Fired for SPELL_INTERRUPT — a successful interrupt landed on a casting target.
+export interface SpellInterruptSuccessEvent {
+  casterGuid: string
+  casterName: string
+  casterFlags: number
+  targetGuid: string
+  targetName: string
+  targetFlags: number
+  spellId: number
+  spellName: string
+  interruptedSpellId: number
+  interruptedSpellName: string
+  timestamp: Date
+}
+
+// Fired when Precognition (377362) is applied to a player — indicates someone wasted
+// an interrupt on them while they weren't casting an interruptible spell.
+export interface PrecognitionGainedEvent {
+  playerGuid: string
+  playerName: string
+  timestamp: Date
+}
+
 export interface CombatantInfoEvent {
   playerGuid: string
   playerName: string
@@ -211,6 +257,16 @@ export interface UnitDiedEvent {
   // Raw WoW unit flags for the unit that died. Use UNIT_FLAG_REACTION_HOSTILE (0x40)
   // to determine whether the death was a player-team death or an enemy death.
   destFlags: number
+  timestamp: Date
+}
+
+// Fired for UNIT_HEALTH events (requires Advanced Combat Logging in WoW).
+// Provides current HP snapshot per unit — used to attach HP% to death summary hits.
+export interface UnitHealthEvent {
+  unitGuid: string
+  unitName: string
+  hp: number
+  maxHp: number
   timestamp: Date
 }
 
@@ -232,11 +288,14 @@ export interface ParserEventMap {
   spellAuraApplied: SpellAuraEvent
   spellAuraRemoved: SpellAuraEvent
   unitDied: UnitDiedEvent
+  unitHealth: UnitHealthEvent
   arenaMatchStatsEntry: ArenaMatchStatsEntryEvent
   healerCast: HealerCastEvent
   combatantInfo: CombatantInfoEvent
   spellDamage: SpellDamageEvent
   spellHealAmount: SpellHealAmountEvent
+  spellInterruptSuccess: SpellInterruptSuccessEvent
+  precognitionGained: PrecognitionGainedEvent
 }
 
 // ---------------------------------------------------------------------------
@@ -338,6 +397,9 @@ export class CombatLogParser extends EventEmitter {
       case 'SPELL_CAST_SUCCESS':
         this.handleSpellCastSuccess(fields, timestamp)
         break
+      case 'SPELL_INTERRUPT':
+        this.handleSpellInterrupt(fields, timestamp)
+        break
       case 'SPELL_AURA_APPLIED':
         this.handleSpellAura(fields, timestamp, 'spellAuraApplied')
         break
@@ -357,6 +419,9 @@ export class CombatLogParser extends EventEmitter {
         break
       case 'UNIT_DIED':
         this.handleUnitDied(fields, timestamp)
+        break
+      case 'UNIT_HEALTH':
+        this.handleUnitHealth(fields, timestamp)
         break
       default:
         break
@@ -421,6 +486,10 @@ export class CombatLogParser extends EventEmitter {
     this.session.isSoloShuffle = bracket === 'solo-shuffle'
     this.session.localTeam = parseInt(fields[MATCH_START_FIELD_LOCAL_TEAM] ?? '0', 10) || 0
 
+    // Diagnostic: log raw fields to verify indices per Midnight patch
+    console.warn('[Parser] ARENA_MATCH_START fields:', JSON.stringify(fields.slice(0, 6)))
+    console.warn(`[Parser] MATCH_START → bracket="${bracket}", localTeam=${this.session.localTeam}`)
+
     this.emit('arenaMatchStart', {
       instanceId,
       zoneName: this.session.zoneName,
@@ -442,6 +511,10 @@ export class CombatLogParser extends EventEmitter {
     const durationSecs = parseInt(rawDuration, 10)
 
     if (isNaN(winningTeam) || isNaN(durationSecs)) return
+
+    // Diagnostic: log raw fields to verify indices per Midnight patch
+    console.warn('[Parser] ARENA_MATCH_END fields:', JSON.stringify(fields.slice(0, 4)))
+    console.warn(`[Parser] MATCH_END → winningTeam=${winningTeam}, durationSecs=${durationSecs}, localTeam=${this.session.localTeam}`)
 
     // localTeam is read from ARENA_MATCH_START field 3. The logging player wins when
     // the winning team matches their own team number.
@@ -555,7 +628,20 @@ export class CombatLogParser extends EventEmitter {
     const rawSpellId = fields[SPELL_FIELD_SPELL_ID]
     if (rawSpellId === undefined) return
     const spellId = parseInt(rawSpellId, 10)
-    if (isNaN(spellId) || !SPELL_IDS_CC.has(spellId)) return
+    if (isNaN(spellId)) return
+
+    // Precognition: fired when an interrupt is wasted on a player who wasn't casting.
+    // Self-applied buff — src and dst are the same player.
+    if (event === 'spellAuraApplied' && spellId === PRECOGNITION_SPELL_ID) {
+      const playerGuid = fields[SPELL_FIELD_TARGET_GUID]
+      const playerName = fields[SPELL_FIELD_TARGET_NAME] ?? ''
+      if (playerGuid !== undefined) {
+        this.emit('precognitionGained', { playerGuid, playerName, timestamp })
+      }
+      return
+    }
+
+    if (!SPELL_IDS_CC.has(spellId)) return
 
     const casterGuid = fields[SPELL_FIELD_CASTER_GUID]
     const casterName = fields[SPELL_FIELD_CASTER_NAME] ?? ''
@@ -568,6 +654,42 @@ export class CombatLogParser extends EventEmitter {
     const targetFlags = parseHexFlags(fields[SPELL_FIELD_TARGET_FLAGS] ?? '0')
 
     this.emit(event, { casterGuid, casterName, targetGuid, targetName, targetFlags, spellId, spellName, timestamp })
+  }
+
+  private handleSpellInterrupt(fields: string[], timestamp: Date): void {
+    const casterGuid = fields[SPELL_FIELD_CASTER_GUID]
+    const casterName = fields[SPELL_FIELD_CASTER_NAME] ?? ''
+    const targetGuid = fields[SPELL_FIELD_TARGET_GUID]
+    const targetName = fields[SPELL_FIELD_TARGET_NAME] ?? ''
+
+    if (casterGuid === undefined || targetGuid === undefined) return
+
+    const rawSpellId = fields[INTERRUPT_FIELD_SPELL_ID]
+    const rawInterruptedSpellId = fields[INTERRUPT_FIELD_INTERRUPTED_SPELL_ID]
+    if (rawSpellId === undefined || rawInterruptedSpellId === undefined) return
+
+    const spellId = parseInt(rawSpellId, 10)
+    const interruptedSpellId = parseInt(rawInterruptedSpellId, 10)
+    if (isNaN(spellId) || isNaN(interruptedSpellId)) return
+
+    const spellName = fields[INTERRUPT_FIELD_SPELL_NAME] ?? ''
+    const interruptedSpellName = fields[INTERRUPT_FIELD_INTERRUPTED_SPELL_NAME] ?? ''
+    const casterFlags = parseHexFlags(fields[SPELL_FIELD_CASTER_FLAGS] ?? '0')
+    const targetFlags = parseHexFlags(fields[SPELL_FIELD_TARGET_FLAGS] ?? '0')
+
+    this.emit('spellInterruptSuccess', {
+      casterGuid,
+      casterName,
+      casterFlags,
+      targetGuid,
+      targetName,
+      targetFlags,
+      spellId,
+      spellName,
+      interruptedSpellId,
+      interruptedSpellName,
+      timestamp
+    })
   }
 
   private handleCombatantInfo(fields: string[], rawLine: string, timestamp: Date): void {
@@ -585,6 +707,10 @@ export class CombatLogParser extends EventEmitter {
     // Trailing fields after the last ']' bracket section:
     // [specOrLoadoutID, bracketID, personalRating, honorLevel]
     const trailing = parseCombatantInfoTrailing(rawLine)
+
+    // Diagnostic: log trailing to verify format per Midnight patch
+    console.warn('[Parser] COMBATANT_INFO trailing:', JSON.stringify(trailing), '| playerName:', playerName || '(unknown)', '| team:', team)
+
     if (trailing.length < 4) return
 
     // personalRating is the third-to-last field (index -2)
@@ -691,6 +817,20 @@ export class CombatLogParser extends EventEmitter {
       destFlags,
       timestamp
     })
+  }
+
+  private handleUnitHealth(fields: string[], timestamp: Date): void {
+    const unitGuid = fields[UNIT_HEALTH_FIELD_UNIT_GUID]
+    const unitName = fields[UNIT_HEALTH_FIELD_UNIT_NAME]
+    if (unitGuid === undefined || unitName === undefined) return
+    // Only track player units
+    if (!unitGuid.startsWith('Player-')) return
+
+    const hp = parseInt(fields[UNIT_HEALTH_FIELD_HP] ?? '', 10)
+    const maxHp = parseInt(fields[UNIT_HEALTH_FIELD_MAX_HP] ?? '', 10)
+    if (isNaN(hp) || isNaN(maxHp) || maxHp <= 0) return
+
+    this.emit('unitHealth', { unitGuid, unitName, hp, maxHp, timestamp })
   }
 }
 

@@ -25,7 +25,11 @@ import type {
   HealerCastEvent,
   CombatantInfoEvent,
   SpellDamageEvent,
-  SpellHealAmountEvent
+  SpellHealAmountEvent,
+  ArenaMatchStatsEntryEvent,
+  UnitHealthEvent,
+  SpellInterruptSuccessEvent,
+  PrecognitionGainedEvent
 } from '../combatlog/CombatLogParser'
 import { UNIT_FLAG_REACTION_HOSTILE } from '../combatlog/CombatLogParser'
 
@@ -68,6 +72,9 @@ export interface ProcessingRequiredEvent {
   enemyDmgBySecond: number[]
   teamHealBySecond: number[]
   enemyHealBySecond: number[]
+  // Local player's rating change for this match (from ARENA_MATCH_STATS)
+  ratingBefore?: number
+  ratingAfter?: number
   // Solo Shuffle only
   roundNumber?: number
   sessionId?: string
@@ -116,9 +123,16 @@ interface SessionContext {
   isSoloShuffle: boolean
   roundNumber: number
   sessionId: string
+  // Which WoW team slot the local player is on (0 or 1), from ARENA_MATCH_START field 3
+  localTeam: number
+  // Local player's rating from ARENA_MATCH_STATS (filled after match end)
+  ratingBefore: number | null
+  ratingAfter: number | null
   recordingStartedAt: Date
   matchStartedAt: Date | null
   rawOutputPath: string | null
+  // Timer ID for Solo Shuffle session-end timeout (guards against missing ARENA_MATCH_END)
+  soloShuffleTimeoutId: ReturnType<typeof setTimeout> | null
   // Timeline events accumulated during the current round (cleared on each ARENA_MATCH_START)
   pendingTimeline: TimelineEvent[]
   // Per-player defensive + trinket cooldown usage: playerName → (spellId → relSecs used).
@@ -145,6 +159,12 @@ interface SessionContext {
   // --- Per-round damage/heal tracking (cleared on ARENA_MATCH_START) ---
   // Last 5 seconds of incoming damage per target GUID for death summary
   recentDamageByGuid: Map<string, DamageHit[]>
+  // Last 5 seconds of HP snapshots per GUID for death summary HP% (Advanced Combat Logging)
+  recentHealthByGuid: Map<string, Array<{ relSecs: number; hp: number; maxHp: number }>>
+  // Pending interrupt correlations — keyed by casterGuid and targetGuid for back-filling
+  // timeline events once SPELL_INTERRUPT (success) or Precognition (failure) resolves them.
+  pendingInterruptByCaster: Map<string, { timelineIdx: number; targetGuid: string; relSecs: number }>
+  pendingInterruptByTarget: Map<string, { timelineIdx: number; relSecs: number }>
   // Cumulative damage/heal samples per team for line charts
   teamDmgAccum: number
   enemyDmgAccum: number
@@ -179,7 +199,7 @@ export class RecorderStateMachine extends EventEmitter {
     this.watcher = watcher
     this.recorder = recorder
     this.options = options
-    this.localPlayerName = options.localPlayerName
+    this.localPlayerName = options.localPlayerName ?? null
 
     this.bindParserEvents()
     this.bindRecorderEvents()
@@ -240,6 +260,10 @@ export class RecorderStateMachine extends EventEmitter {
     this.watcher.onParser('combatantInfo', (e) => this.onCombatantInfo(e))
     this.watcher.onParser('spellDamage', (e) => this.onSpellDamage(e))
     this.watcher.onParser('spellHealAmount', (e) => this.onSpellHealAmount(e))
+    this.watcher.onParser('arenaMatchStatsEntry', (e) => this.onArenaMatchStats(e))
+    this.watcher.onParser('unitHealth', (e) => this.onUnitHealth(e))
+    this.watcher.onParser('spellInterruptSuccess', (e) => this.onSpellInterruptSuccess(e))
+    this.watcher.onParser('precognitionGained', (e) => this.onPrecognitionGained(e))
   }
 
   private bindRecorderEvents(): void {
@@ -276,9 +300,13 @@ export class RecorderStateMachine extends EventEmitter {
       isSoloShuffle: false,
       roundNumber: 0,
       sessionId: e.timestamp.toISOString(),
+      localTeam: 0,
+      ratingBefore: null,
+      ratingAfter: null,
       recordingStartedAt: new Date(),
       matchStartedAt: null,
       rawOutputPath: null,
+      soloShuffleTimeoutId: null,
       pendingTimeline: [],
       playerCooldowns: new Map(),
       activeCCs: new Map(),
@@ -290,6 +318,9 @@ export class RecorderStateMachine extends EventEmitter {
       guidTeams: new Map(),
       playerRatings: new Map(),
       recentDamageByGuid: new Map(),
+      recentHealthByGuid: new Map(),
+      pendingInterruptByCaster: new Map(),
+      pendingInterruptByTarget: new Map(),
       teamDmgAccum: 0, enemyDmgAccum: 0,
       teamHealAccum: 0, enemyHealAccum: 0,
       teamDmgSamples: [], enemyDmgSamples: [],
@@ -329,9 +360,13 @@ export class RecorderStateMachine extends EventEmitter {
         isSoloShuffle: false,
         roundNumber: 0,
         sessionId: e.timestamp.toISOString(),
+        localTeam: 0,
+        ratingBefore: null,
+        ratingAfter: null,
         recordingStartedAt: new Date(),
         matchStartedAt: null,
         rawOutputPath: null,
+        soloShuffleTimeoutId: null,
         pendingTimeline: [],
         playerCooldowns: new Map(),
         activeCCs: new Map(),
@@ -356,14 +391,24 @@ export class RecorderStateMachine extends EventEmitter {
 
     this.session.bracket = e.bracket
     this.session.isSoloShuffle = e.bracket === 'solo-shuffle'
+    this.session.localTeam = e.localTeam
     this.session.roundNumber++
     this.session.matchStartedAt = e.timestamp
+    console.warn(`[StateMachine] localPlayerName: ${this.localPlayerName ?? 'null (addon not connected)'}`)
+    // Cancel any pending solo-shuffle timeout from a previous round
+    if (this.session.soloShuffleTimeoutId !== null) {
+      clearTimeout(this.session.soloShuffleTimeoutId)
+      this.session.soloShuffleTimeoutId = null
+    }
     // Clear per-round state: all timestamps are relative to this match start.
     this.session.pendingTimeline = []
     this.session.playerCooldowns = new Map()
     this.session.activeCCs = new Map()
     this.session.drCounters = new Map()
     this.session.recentDamageByGuid = new Map()
+    this.session.recentHealthByGuid = new Map()
+    this.session.pendingInterruptByCaster = new Map()
+    this.session.pendingInterruptByTarget = new Map()
     this.session.teamDmgAccum = 0; this.session.enemyDmgAccum = 0
     this.session.teamHealAccum = 0; this.session.enemyHealAccum = 0
     this.session.teamDmgSamples = []; this.session.enemyDmgSamples = []
@@ -378,6 +423,12 @@ export class RecorderStateMachine extends EventEmitter {
 
   private onMatchEnd(result: ArenaResult, durationSecs: number): void {
     if (this.status !== 'recording' || this.session === null) return
+
+    // Cancel any pending solo-shuffle timeout — we got the match end event
+    if (this.session.soloShuffleTimeoutId !== null) {
+      clearTimeout(this.session.soloShuffleTimeoutId)
+      this.session.soloShuffleTimeoutId = null
+    }
 
     const {
       zoneName,
@@ -420,9 +471,28 @@ export class RecorderStateMachine extends EventEmitter {
       this.session.pendingTimeline = []
       this.transitionTo('waiting', zoneName)
       void this.startRecorder()
+
+      // Fallback: if no ARENA_MATCH_START arrives within 30s, the session is over.
+      // This guards against ARENA_MATCH_END firing for the last round with a wrong
+      // round count (e.g. Midnight changed SOLO_SHUFFLE_ROUNDS_PER_SESSION), or the
+      // session ending without a proper ARENA_MATCH_STATS event.
+      if (this.session !== null) {
+        const sess = this.session
+        sess.soloShuffleTimeoutId = setTimeout(() => {
+          if (this.status === 'waiting' && this.session === sess) {
+            console.warn('[StateMachine] Solo Shuffle timeout — no new round started; ending session')
+            void this.abortRecorder()
+            this.session = null
+            this.transitionTo('idle')
+          }
+        }, 30_000)
+      }
     } else {
       this.transitionTo('processing', zoneName)
     }
+
+    const ratingBefore = this.session?.ratingBefore ?? undefined
+    const ratingAfter = this.session?.ratingAfter ?? undefined
 
     void stopPromise
       .then((finalPath) => {
@@ -442,6 +512,8 @@ export class RecorderStateMachine extends EventEmitter {
           enemyDmgBySecond,
           teamHealBySecond,
           enemyHealBySecond,
+          ratingBefore,
+          ratingAfter,
           roundNumber: isSoloShuffle ? roundNumber : undefined,
           sessionId: isSoloShuffle ? sessionId : undefined
         })
@@ -553,7 +625,7 @@ export class RecorderStateMachine extends EventEmitter {
       if (drCategory !== undefined) {
         const key = `${e.targetGuid}:${drCategory}`
         const counter = this.session.drCounters.get(key)
-        if (counter !== undefined && relSecs < counter.windowExpiresAt && counter.count >= 3) {
+        if (counter !== undefined && relSecs < counter.windowExpiresAt && counter.count >= 2) {
           isMistake = true
           mistakeReason = 'DR immune'
         }
@@ -572,6 +644,7 @@ export class RecorderStateMachine extends EventEmitter {
       }
     }
 
+    const timelineIdx = this.session.pendingTimeline.length
     this.session.pendingTimeline.push({
       timestamp: relSecs,
       type: e.eventCategory,
@@ -584,6 +657,21 @@ export class RecorderStateMachine extends EventEmitter {
       isMistake,
       mistakeReason
     })
+
+    // Buffer interrupt events for resolution via SPELL_INTERRUPT (success) or Precognition (failure).
+    // Use a 2-second TTL window — stale entries are pruned when new interrupts arrive.
+    if (e.eventCategory === 'interrupt') {
+      const INTERRUPT_TTL_SECS = 2
+      // Prune stale entries before adding new ones
+      for (const [k, v] of this.session.pendingInterruptByCaster) {
+        if (relSecs - v.relSecs > INTERRUPT_TTL_SECS) this.session.pendingInterruptByCaster.delete(k)
+      }
+      for (const [k, v] of this.session.pendingInterruptByTarget) {
+        if (relSecs - v.relSecs > INTERRUPT_TTL_SECS) this.session.pendingInterruptByTarget.delete(k)
+      }
+      this.session.pendingInterruptByCaster.set(e.casterGuid, { timelineIdx, targetGuid: e.targetGuid, relSecs })
+      this.session.pendingInterruptByTarget.set(e.targetGuid, { timelineIdx, relSecs })
+    }
   }
 
   private onHealerCast(e: HealerCastEvent): void {
@@ -739,15 +827,33 @@ export class RecorderStateMachine extends EventEmitter {
       }
     }
 
-    const unusedDefensives = isLocalPlayer
-      ? computeUnusedDefensives(e.unitName, relSecs, this.playerClassInferred, this.session.playerCooldowns, false)
-      : []
+    // Compute unused defensives for any player death where class is known.
+    // "Could use" display in the UI is renderer-side; backend always provides the data.
+    const unusedDefensives = computeUnusedDefensives(
+      e.unitName,
+      relSecs,
+      this.playerClassInferred,
+      this.session.playerCooldowns
+    )
 
     // Collect last 3 seconds of incoming damage for death summary
     const recentHits = this.session.recentDamageByGuid.get(e.unitGuid) ?? []
+    const healthSamples = this.session.recentHealthByGuid.get(e.unitGuid) ?? []
     const deathSummary = recentHits
       .filter((h) => relSecs - h.relSecs <= 3)
-      .map((h) => ({ ...h, relSecs: parseFloat((h.relSecs - relSecs).toFixed(2)) }))
+      .map((h) => {
+        // Find nearest HP sample just before this hit
+        let hpPct: number | undefined
+        let closestDelta = Infinity
+        for (const s of healthSamples) {
+          const delta = h.relSecs - s.relSecs
+          if (delta >= 0 && delta < closestDelta && s.maxHp > 0) {
+            closestDelta = delta
+            hpPct = Math.round((s.hp / s.maxHp) * 100)
+          }
+        }
+        return { ...h, relSecs: parseFloat((h.relSecs - relSecs).toFixed(2)), hpPct }
+      })
 
     this.session.pendingTimeline.push({
       timestamp: relSecs,
@@ -756,6 +862,77 @@ export class RecorderStateMachine extends EventEmitter {
       unusedDefensives: unusedDefensives.length > 0 ? unusedDefensives : undefined,
       deathSummary: deathSummary.length > 0 ? deathSummary : undefined
     })
+  }
+
+  private onSpellInterruptSuccess(e: SpellInterruptSuccessEvent): void {
+    if (this.status !== 'recording' || this.session === null || this.session.matchStartedAt === null)
+      return
+
+    // Resolve via casterGuid: find the pending interrupt this caster used.
+    const pending = this.session.pendingInterruptByCaster.get(e.casterGuid)
+    if (pending !== undefined) {
+      const ev = this.session.pendingTimeline[pending.timelineIdx]
+      if (ev !== undefined && ev.type === 'interrupt') {
+        ev.isSuccessful = true
+        ev.interruptedSpell = e.interruptedSpellName
+      }
+      this.session.pendingInterruptByCaster.delete(e.casterGuid)
+      this.session.pendingInterruptByTarget.delete(pending.targetGuid)
+    }
+  }
+
+  private onPrecognitionGained(e: PrecognitionGainedEvent): void {
+    if (this.status !== 'recording' || this.session === null || this.session.matchStartedAt === null)
+      return
+
+    // Precognition applies to the player who was interrupt-targeted while not casting.
+    // Resolve via targetGuid to find who cast the failed interrupt.
+    const pending = this.session.pendingInterruptByTarget.get(e.playerGuid)
+    if (pending !== undefined) {
+      const ev = this.session.pendingTimeline[pending.timelineIdx]
+      if (ev !== undefined && ev.type === 'interrupt') {
+        ev.isSuccessful = false
+        ev.isMistake = true
+        ev.mistakeReason = 'Bad interrupt'
+      }
+      // Find and clean up the caster-side entry too
+      for (const [guid, p] of this.session.pendingInterruptByCaster) {
+        if (p.timelineIdx === pending.timelineIdx) {
+          this.session.pendingInterruptByCaster.delete(guid)
+          break
+        }
+      }
+      this.session.pendingInterruptByTarget.delete(e.playerGuid)
+    }
+  }
+
+  private onArenaMatchStats(e: ArenaMatchStatsEntryEvent): void {
+    if (this.session === null) return
+    // team 0 = local player's team in ARENA_MATCH_STATS; only store the local player's rating.
+    // We use the localPlayerName to confirm identity; fall back to team index if name unknown.
+    const isLocalPlayer =
+      this.localPlayerName !== null
+        ? e.playerName.toLowerCase() === this.localPlayerName.toLowerCase()
+        : e.team === 0
+    if (isLocalPlayer && e.ratingBefore > 0) {
+      this.session.ratingBefore = e.ratingBefore
+      this.session.ratingAfter = e.ratingAfter
+    }
+  }
+
+  private onUnitHealth(e: UnitHealthEvent): void {
+    if (this.status !== 'recording' || this.session === null || this.session.matchStartedAt === null)
+      return
+
+    const relSecs = (e.timestamp.getTime() - this.session.matchStartedAt.getTime()) / 1000
+    if (relSecs < 0) return
+
+    const samples = this.session.recentHealthByGuid.get(e.unitGuid) ?? []
+    samples.push({ relSecs, hp: e.hp, maxHp: e.maxHp })
+    // Trim to last 5 seconds
+    const cutoff = relSecs - 5
+    const trimmed = cutoff > 0 ? samples.filter((s) => s.relSecs >= cutoff) : samples
+    this.session.recentHealthByGuid.set(e.unitGuid, trimmed)
   }
 
   private onSpellDamage(e: SpellDamageEvent): void {
@@ -832,8 +1009,7 @@ function computeUnusedDefensives(
   unitName: string,
   deathRelSecs: number,
   classMap: ReadonlyMap<string, WowClass>,
-  cooldownMap: Map<string, Map<number, number>>,
-  isEnemy: boolean
+  cooldownMap: Map<string, Map<number, number>>
 ): string[] {
   const className = classMap.get(unitName)
   if (className === undefined) return []
@@ -843,8 +1019,6 @@ function computeUnusedDefensives(
   const available: string[] = []
 
   for (const ability of defensives) {
-    // Trinket only flagged as unused when a friendly (user-controlled) player dies.
-    if (ability.name === 'Trinket' && isEnemy) continue
 
     const allIds = [ability.spellId, ...(ability.alternateIds ?? [])]
 

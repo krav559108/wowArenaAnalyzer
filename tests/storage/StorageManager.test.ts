@@ -21,7 +21,15 @@ const EVENT_2V2: ProcessingRequiredEvent = {
   result: 'WIN',
   durationSecs: 187,
   matchStartedAt: MATCH_START,
-  recordingStartedAt: RECORDING_START
+  recordingStartedAt: RECORDING_START,
+  timeline: [],
+  knownSpecs: {},
+  healerNames: [],
+  playerRatings: {},
+  teamDmgBySecond: [],
+  enemyDmgBySecond: [],
+  teamHealBySecond: [],
+  enemyHealBySecond: []
 }
 
 const EVENT_SS_R3: ProcessingRequiredEvent = {
@@ -33,7 +41,15 @@ const EVENT_SS_R3: ProcessingRequiredEvent = {
   matchStartedAt: MATCH_START,
   recordingStartedAt: RECORDING_START,
   roundNumber: 3,
-  sessionId: '2026-04-15T20:00:00.000Z'
+  sessionId: '2026-04-15T20:00:00.000Z',
+  timeline: [],
+  knownSpecs: {},
+  healerNames: [],
+  playerRatings: {},
+  teamDmgBySecond: [],
+  enemyDmgBySecond: [],
+  teamHealBySecond: [],
+  enemyHealBySecond: []
 }
 
 const SAMPLE_METADATA: RecordingMetadata = {

@@ -701,9 +701,21 @@ function playerRating(name: string): number | undefined {
                 {{ EVENT_TYPE_LABEL[ev.type] ?? ev.type }}
               </span>
 
-              <!-- Mistake marker -->
+              <!-- Interrupt success/fail badge -->
               <span
-                v-if="ev.isMistake"
+                v-if="ev.type === 'interrupt' && ev.isSuccessful === true"
+                class="flex-shrink-0 text-green-400 font-bold text-[10px] bg-green-950/60 px-1 rounded"
+                title="Successful interrupt"
+              >✓</span>
+              <span
+                v-else-if="ev.type === 'interrupt' && ev.isSuccessful === false"
+                class="flex-shrink-0 text-red-400 font-bold text-[10px] bg-red-950/60 px-1 rounded"
+                :title="ev.mistakeReason ?? 'Bad interrupt'"
+              >✗</span>
+
+              <!-- Mistake marker (non-interrupt mistakes, e.g. DR-immune CC) -->
+              <span
+                v-if="ev.isMistake && ev.type !== 'interrupt'"
                 class="flex-shrink-0 text-red-400 font-bold text-[10px] bg-red-950/60 px-1 rounded"
                 :title="ev.mistakeReason"
               >!</span>
@@ -741,6 +753,13 @@ function playerRating(name: string): number | undefined {
                   :style="{ color: playerColor(ev.targetName) }"
                 >{{ ev.targetName }}</span>
               </template>
+
+              <!-- Interrupted spell name (successful interrupts only) -->
+              <span
+                v-if="ev.type === 'interrupt' && ev.interruptedSpell"
+                class="text-zinc-500 flex-shrink-0 truncate"
+                :title="`Interrupted: ${ev.interruptedSpell}`"
+              >({{ ev.interruptedSpell }})</span>
             </div>
 
             <!-- Unused defensives -->
@@ -770,6 +789,7 @@ function playerRating(name: string): number | undefined {
                 class="flex items-center gap-1.5 text-[10px] text-zinc-400"
               >
                 <span class="tabular-nums text-zinc-600 w-8 flex-shrink-0">{{ hit.relSecs.toFixed(1) }}s</span>
+                <span v-if="hit.hpPct !== undefined" class="tabular-nums text-zinc-500 flex-shrink-0">({{ hit.hpPct }}%)</span>
                 <span class="truncate">{{ hit.spellName }}</span>
                 <span class="ml-auto text-red-400 tabular-nums flex-shrink-0">{{ hit.amount.toLocaleString() }}</span>
               </div>

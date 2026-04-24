@@ -32,6 +32,8 @@ export interface DeathHit {
   spellName: string
   amount: number
   relSecs: number  // seconds before death (0 = at death moment, negative = before)
+  // HP% of the target just before this hit landed (requires Advanced Combat Logging)
+  hpPct?: number
 }
 
 export interface TimelineEvent {
@@ -46,9 +48,13 @@ export interface TimelineEvent {
   target?: 'player' | 'enemy'
   isHealerCC?: boolean  // CC whose target is a confirmed healer
   unusedDefensives?: string[]  // defensives that were off cooldown at time of death (local player only)
-  isMistake?: boolean   // flagged as a mistake (e.g. DR-immune CC)
-  mistakeReason?: string // human-readable reason, e.g. "DR immune"
+  isMistake?: boolean   // flagged as a mistake (e.g. DR-immune CC, bad interrupt)
+  mistakeReason?: string // human-readable reason, e.g. "DR immune", "Bad interrupt"
   deathSummary?: DeathHit[]  // last 3 seconds of incoming damage (death events only)
+  // Interrupt-specific: undefined = unknown, true = interrupted a spell, false = hit on immune (Precognition)
+  isSuccessful?: boolean
+  // Name of the spell that was interrupted (successful interrupts only)
+  interruptedSpell?: string
 }
 
 // ---------------------------------------------------------------------------

@@ -547,7 +547,7 @@ export const WOW_SPEC_ID_MAP: Readonly<Record<number, { spec: string; class: str
 // ---------------------------------------------------------------------------
 // DR (Diminishing Returns) category map
 // spellId → DR category string. Spells sharing the same category share DR.
-// WoW DR mechanic (Midnight): 100% → 50% → immune (3 stages, reworked from 4 in prior expansions).
+// WoW DR mechanic (Midnight): 100% → 50% → immune (3 stages).
 // Flag when a cast would land at immune (≥2 prior applications in the 18s window).
 // DR window: 18 seconds measured from when the AURA expired (SPELL_AURA_REMOVED).
 // ---------------------------------------------------------------------------

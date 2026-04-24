@@ -261,7 +261,10 @@ export function buildMetadata(
     enemyComp: [],
     knownSpecs: event.knownSpecs,
     healerNames: event.healerNames,
-    rating: null,
+    rating:
+      event.ratingBefore !== undefined && event.ratingAfter !== undefined
+        ? { before: event.ratingBefore, after: event.ratingAfter }
+        : null,
     events: timeline,
     playerRatings: Object.keys(event.playerRatings).length > 0 ? event.playerRatings : undefined,
     teamDmgBySecond: event.teamDmgBySecond.length > 0 ? event.teamDmgBySecond : undefined,
