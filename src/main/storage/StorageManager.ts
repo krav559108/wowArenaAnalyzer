@@ -236,7 +236,7 @@ export function buildDirName(event: ProcessingRequiredEvent): string {
 
   let bracketPart: string
   if (event.bracket === 'solo-shuffle') {
-    bracketPart = `SoloShuffle_R${event.roundNumber ?? 1}`
+    bracketPart = 'SoloShuffle'
   } else {
     bracketPart = event.bracket
   }

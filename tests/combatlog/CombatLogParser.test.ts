@@ -6,8 +6,6 @@ import type {
   ArenaZoneEnteredEvent,
   ArenaMatchStartEvent,
   ArenaMatchEndEvent,
-  SoloShuffleRoundEndEvent,
-  SoloShuffleSessionEndEvent,
   SpellCastEvent,
   UnitDiedEvent
 } from '../../src/main/combatlog/CombatLogParser'
@@ -224,87 +222,29 @@ describe('CombatLogParser — Solo Shuffle', () => {
     }
   })
 
-  it('emits 6 soloShuffleRoundEnd events', () => {
-    const events: SoloShuffleRoundEndEvent[] = []
-    parser.on('soloShuffleRoundEnd', (e) => events.push(e))
-
-    feedLines(parser, lines)
-
-    expect(events).toHaveLength(6)
-  })
-
-  it('soloShuffleRoundEnd events have sequential round numbers 1–6', () => {
-    const events: SoloShuffleRoundEndEvent[] = []
-    parser.on('soloShuffleRoundEnd', (e) => events.push(e))
-
-    feedLines(parser, lines)
-
-    for (let i = 0; i < 6; i++) {
-      expect(events[i]!.roundNumber).toBe(i + 1)
-    }
-  })
-
-  it('soloShuffleRoundEnd events have correct WIN/LOSS per round', () => {
-    const events: SoloShuffleRoundEndEvent[] = []
-    parser.on('soloShuffleRoundEnd', (e) => events.push(e))
-
-    feedLines(parser, lines)
-
-    // Fixture: WIN, LOSS, WIN, WIN, LOSS, WIN
-    expect(events[0]!.result).toBe('WIN')
-    expect(events[1]!.result).toBe('LOSS')
-    expect(events[2]!.result).toBe('WIN')
-    expect(events[3]!.result).toBe('WIN')
-    expect(events[4]!.result).toBe('LOSS')
-    expect(events[5]!.result).toBe('WIN')
-  })
-
-  it('all rounds share the same sessionId', () => {
-    const events: SoloShuffleRoundEndEvent[] = []
-    parser.on('soloShuffleRoundEnd', (e) => events.push(e))
-
-    feedLines(parser, lines)
-
-    const sessionIds = new Set(events.map((e) => e.sessionId))
-    expect(sessionIds.size).toBe(1)
-  })
-
-  it('emits exactly one soloShuffleSessionEnd event', () => {
-    const events: SoloShuffleSessionEndEvent[] = []
-    parser.on('soloShuffleSessionEnd', (e) => events.push(e))
+  it('emits exactly one arenaMatchEnd event for the whole session (Midnight format)', () => {
+    const events: ArenaMatchEndEvent[] = []
+    parser.on('arenaMatchEnd', (e) => events.push(e))
 
     feedLines(parser, lines)
 
     expect(events).toHaveLength(1)
   })
 
-  it('soloShuffleSessionEnd has correct rating data', () => {
-    const events: SoloShuffleSessionEndEvent[] = []
-    parser.on('soloShuffleSessionEnd', (e) => events.push(e))
-
-    feedLines(parser, lines)
-
-    const event = events[0]!
-    expect(event.ratingBefore).toBe(1700)
-    expect(event.ratingAfter).toBe(1713)
-    expect(event.playerName).toBe('Thrall')
-    expect(event.totalRounds).toBe(6)
-  })
-
-  it('soloShuffleSessionEnd sessionId matches round sessionIds', () => {
-    const roundEvents: SoloShuffleRoundEndEvent[] = []
-    const sessionEvents: SoloShuffleSessionEndEvent[] = []
-    parser.on('soloShuffleRoundEnd', (e) => roundEvents.push(e))
-    parser.on('soloShuffleSessionEnd', (e) => sessionEvents.push(e))
-
-    feedLines(parser, lines)
-
-    expect(roundEvents[0]!.sessionId).toBe(sessionEvents[0]!.sessionId)
-  })
-
-  it('does NOT emit arenaMatchEnd for Solo Shuffle rounds', () => {
-    const events: unknown[] = []
+  it('arenaMatchEnd result reflects overall session outcome', () => {
+    const events: ArenaMatchEndEvent[] = []
     parser.on('arenaMatchEnd', (e) => events.push(e))
+
+    feedLines(parser, lines)
+
+    // Fixture: localTeam=0, ARENA_MATCH_END winningTeam=0 → WIN
+    expect(events[0]!.result).toBe('WIN')
+    expect(events[0]!.durationSecs).toBe(720)
+  })
+
+  it('does NOT emit soloShuffleRoundEnd (Midnight: per-round end events removed)', () => {
+    const events: unknown[] = []
+    parser.on('soloShuffleRoundEnd', (e) => events.push(e))
 
     feedLines(parser, lines)
 

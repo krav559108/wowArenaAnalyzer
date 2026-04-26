@@ -520,24 +520,13 @@ export class CombatLogParser extends EventEmitter {
     // the winning team matches their own team number.
     const result: ArenaResult = winningTeam === this.session.localTeam ? 'WIN' : 'LOSS'
 
-    if (this.session.isSoloShuffle) {
-      this.session.roundCount++
-      this.session.roundResults.push(result)
-
-      this.emit('soloShuffleRoundEnd', {
-        roundNumber: this.session.roundCount,
-        result,
-        durationSecs,
-        sessionId: this.session.sessionId,
-        timestamp
-      })
-    } else {
-      this.emit('arenaMatchEnd', {
-        result,
-        durationSecs,
-        timestamp
-      })
-    }
+    // Midnight (12.x): ARENA_MATCH_END fires once at the end of the entire session for
+    // all brackets including Solo Shuffle — emit arenaMatchEnd unconditionally.
+    this.emit('arenaMatchEnd', {
+      result,
+      durationSecs,
+      timestamp
+    })
   }
 
   private handleArenaMatchStats(fields: string[], timestamp: Date): void {

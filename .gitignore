@@ -7,3 +7,4 @@ dist/
 tests/fixtures/*.txt
 .claude/
 docs/
+CLAUDE.md

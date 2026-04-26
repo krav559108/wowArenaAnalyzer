@@ -7,8 +7,6 @@ import { useMainView } from '@/composables/useMainView'
 import RecordingList from '@/components/RecordingList.vue'
 import VideoPlayer from '@/components/VideoPlayer.vue'
 import SettingsView from '@/pages/SettingsView.vue'
-import LogAnalysisView from '@/pages/LogAnalysisView.vue'
-
 const appStore = useAppStore()
 const recordingsStore = useRecordingsStore()
 
@@ -18,7 +16,7 @@ const { selected } = storeToRefs(recordingsStore)
 const { deleteRecording, openFolder } = useMainView()
 
 const settingsOpen = ref(false)
-const activeTab = ref<'2v2' | '3v3' | 'solo-shuffle' | 'skirmish' | 'log'>('2v2')
+const activeTab = ref<'2v2' | '3v3' | 'solo-shuffle' | 'skirmish'>('2v2')
 
 const BRACKET_TABS = [
   { key: '2v2' as const, label: '2v2' },
@@ -33,10 +31,9 @@ function bracketCount(bracket: string): number {
   return recordings.value.filter((r) => r.metadata.bracket === bracket).length
 }
 
-const filteredRecordings = computed(() => {
-  if (activeTab.value === 'log') return []
-  return recordings.value.filter((r) => r.metadata.bracket === activeTab.value)
-})
+const filteredRecordings = computed(() =>
+  recordings.value.filter((r) => r.metadata.bracket === activeTab.value)
+)
 
 // -------------------------------------------------------------------------
 // Addon connection status — polls every 5 s (SavedVars flush on WoW reload)
@@ -220,84 +217,62 @@ const statusTextClass = computed(() => {
           >{{ bracketCount(tab.key) }}</span>
         </button>
 
-        <!-- Divider -->
-        <span class="w-px h-3 bg-zinc-800 mx-1" />
-
-        <!-- Log Analysis -->
-        <button
-          class="px-4 py-2 text-xs font-medium transition-colors border-b-2"
-          :class="activeTab === 'log'
-            ? 'text-zinc-200 border-zinc-400'
-            : 'text-zinc-500 border-transparent hover:text-zinc-300'"
-          @click="activeTab = 'log'"
-        >
-          Log Analysis
-        </button>
       </div>
 
       <!-- Tab content (offset for tab bar height ~33px) -->
       <div class="flex flex-1 min-h-0 mt-[33px] w-full">
-        <!-- Recordings tabs (bracket filter) -->
-        <template v-if="activeTab !== 'log'">
-          <!-- Sidebar -->
-          <aside class="flex-shrink-0 w-72 border-r border-zinc-800/60 flex flex-col overflow-hidden">
-            <RecordingList
-              class="flex-1 min-h-0"
-              :recordings="filteredRecordings"
-              :on-delete="deleteRecording"
-              :on-open-folder="openFolder"
-            />
-          </aside>
+        <!-- Sidebar -->
+        <aside class="flex-shrink-0 w-72 border-r border-zinc-800/60 flex flex-col overflow-hidden">
+          <RecordingList
+            class="flex-1 min-h-0"
+            :recordings="filteredRecordings"
+            :on-delete="deleteRecording"
+            :on-open-folder="openFolder"
+          />
+        </aside>
 
-          <!-- Main panel -->
-          <main class="flex-1 min-w-0 flex flex-col overflow-hidden">
-            <VideoPlayer
-              v-if="selected !== null"
-              :recording="selected"
-              class="flex-1 min-h-0 overflow-y-auto"
-            />
-            <div
-              v-else
-              class="flex-1 flex flex-col items-center justify-center text-center px-8"
-            >
-              <div class="w-16 h-16 rounded-full bg-zinc-800/60 flex items-center justify-center mb-4">
-                <svg
-                  class="w-7 h-7 text-zinc-600"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9A2.25 2.25 0 0013.5 5.25h-9A2.25 2.25 0 002.25 7.5v9A2.25 2.25 0 004.5 18.75z"
-                  />
-                </svg>
-              </div>
-              <p class="text-zinc-300 text-sm font-medium">
-                Select a recording
-              </p>
-              <p class="text-zinc-600 text-xs mt-1 max-w-[260px]">
-                Choose a match from the sidebar to watch the replay and review the timeline.
-              </p>
-              <template v-if="status === 'idle'">
-                <div class="mt-6 px-4 py-3 rounded-lg bg-zinc-900 border border-zinc-800 text-left max-w-[280px]">
-                  <p class="text-xs text-zinc-400">
-                    <span class="text-zinc-200 font-medium">Auto-record is active.</span>
-                    Launch WoW and enter an arena — recording starts automatically when a match begins.
-                  </p>
-                </div>
-              </template>
+        <!-- Main panel -->
+        <main class="flex-1 min-w-0 flex flex-col overflow-hidden">
+          <VideoPlayer
+            v-if="selected !== null"
+            :recording="selected"
+            class="flex-1 min-h-0 overflow-y-auto"
+          />
+          <div
+            v-else
+            class="flex-1 flex flex-col items-center justify-center text-center px-8"
+          >
+            <div class="w-16 h-16 rounded-full bg-zinc-800/60 flex items-center justify-center mb-4">
+              <svg
+                class="w-7 h-7 text-zinc-600"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9A2.25 2.25 0 0013.5 5.25h-9A2.25 2.25 0 002.25 7.5v9A2.25 2.25 0 004.5 18.75z"
+                />
+              </svg>
             </div>
-          </main>
-        </template>
-
-        <!-- Log Analysis tab -->
-        <LogAnalysisView
-          v-if="activeTab === 'log'"
-          class="flex-1 min-w-0"
-        />
+            <p class="text-zinc-300 text-sm font-medium">
+              Select a recording
+            </p>
+            <p class="text-zinc-600 text-xs mt-1 max-w-[260px]">
+              Choose a match from the sidebar to watch the replay and review the timeline.
+            </p>
+            <template v-if="status === 'idle'">
+              <div class="mt-6 px-4 py-3 rounded-lg bg-zinc-900 border border-zinc-800 text-left max-w-[280px]">
+                <p class="text-xs text-zinc-400">
+                  <span class="text-zinc-200 font-medium">Auto-record is active.</span>
+                  Launch WoW and enter an arena — recording starts automatically when a match begins.
+                </p>
+              </div>
+            </template>
+          </div>
+        </main>
       </div>
 
       <!-- ----------------------------------------------------------------- -->

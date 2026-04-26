@@ -22,7 +22,9 @@ export const ARENA_ZONE_IDS: ReadonlySet<number> = new Set([
   2509, // Maldraxxus Coliseum
   2547, // Enigma Crucible
   2563, // Nokhudon Proving Grounds
-  2759 // Cage of Carnage (TWW patch 11.1.0)
+  1911, // Mugambala — verified from real log (ZONE_CHANGE,1911,"Mugambala",0)
+  2759, // Cage of Carnage (TWW patch 11.1.0)
+  2167  // The Robodrome — verified from real log (ZONE_CHANGE,2167,"The Robodrome",0)
 ])
 
 // Human-readable zone names keyed by zone ID.
@@ -41,7 +43,9 @@ export const ARENA_ZONE_NAMES: Readonly<Record<number, string>> = {
   2509: 'Maldraxxus Coliseum',
   2547: 'Enigma Crucible',
   2563: 'Nokhudon Proving Grounds',
-  2759: 'Cage of Carnage'
+  1911: 'Mugambala',
+  2759: 'Cage of Carnage',
+  2167: 'The Robodrome'
 }
 
 // ---------------------------------------------------------------------------
@@ -51,7 +55,8 @@ export const ARENA_ZONE_NAMES: Readonly<Record<number, string>> = {
 export const BRACKET_FIELD_MAP: Readonly<Record<string, import('./ipc.types').ArenaBracket>> = {
   '2v2': '2v2',
   '3v3': '3v3',
-  'solo shuffle': 'solo-shuffle',
+  'solo shuffle': 'solo-shuffle',         // pre-Midnight bracket name
+  'rated solo shuffle': 'solo-shuffle',   // Midnight (12.x) bracket name
   'skirmish': 'skirmish'
 }
 

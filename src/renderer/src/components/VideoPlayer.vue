@@ -252,7 +252,9 @@ function toggleType(type: TimelineEventType): void {
 }
 
 const visibleEvents = computed(() =>
-  events.value.filter((ev) => !hiddenTypes.value.has(ev.type))
+  events.value
+    .filter((ev) => !hiddenTypes.value.has(ev.type))
+    .sort((a, b) => a.timestamp - b.timestamp)
 )
 
 watch(visibleEvents, () => {
@@ -687,7 +689,7 @@ function playerRating(name: string): number | undefined {
                 class="w-10 flex-shrink-0 text-zinc-500 tabular-nums hover:text-zinc-300 text-left"
                 @click="handleSeek(ev.timestamp)"
               >
-                {{ fmtSecs(ev.timestamp) }}
+                {{ fmtSecs(Math.max(0, ev.timestamp - 2)) }}
               </button>
 
               <!-- Color dot -->

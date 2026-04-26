@@ -244,7 +244,7 @@ describe('RecorderStateMachine — zone exit aborts recording', () => {
   })
 })
 
-describe('RecorderStateMachine — Solo Shuffle multi-round session', () => {
+describe('RecorderStateMachine — Solo Shuffle session (Midnight: one recording per session)', () => {
   let watcher: FakeWatcher
   let recorder: FakeRecorder
   let machine: RecorderStateMachine
@@ -255,21 +255,24 @@ describe('RecorderStateMachine — Solo Shuffle multi-round session', () => {
     machine = buildMachine(watcher, recorder)
   })
 
-  it('starts a new recorder after each Solo Shuffle round', async () => {
+  it('records the full session as one clip; goes idle after arenaMatchEnd', async () => {
     watcher.fireParser('arenaZoneEntered', zoneEntered)
     await flushPromises()
 
-    // Round 1
-    watcher.fireParser('arenaMatchStart', matchStartSS)
-    watcher.fireParser('soloShuffleRoundEnd', matchEndRound)
+    // 6 ARENA_MATCH_START events (rounds 1–6) — only round 1 triggers waiting→recording
+    for (let i = 0; i < 6; i++) {
+      watcher.fireParser('arenaMatchStart', matchStartSS)
+    }
+    // ONE ARENA_MATCH_END for the whole session
+    watcher.fireParser('arenaMatchEnd', matchEnd)
     await flushPromises()
 
-    // After round 1: should be back in waiting and started a 2nd recorder
-    expect(machine.getStatus()).toBe('waiting')
-    expect(recorder.startMock).toHaveBeenCalledTimes(2)
+    // Recorder started once (zone entry), never restarted mid-session
+    expect(recorder.startMock).toHaveBeenCalledTimes(1)
+    expect(machine.getStatus()).toBe('idle')
   })
 
-  it('emits processingRequired with round number and sessionId', async () => {
+  it('emits processingRequired with sessionId for solo shuffle; no roundNumber', async () => {
     watcher.fireParser('arenaZoneEntered', zoneEntered)
     await flushPromises()
 
@@ -277,12 +280,12 @@ describe('RecorderStateMachine — Solo Shuffle multi-round session', () => {
     machine.on('processingRequired', (e) => events.push(e))
 
     watcher.fireParser('arenaMatchStart', matchStartSS)
-    watcher.fireParser('soloShuffleRoundEnd', matchEndRound)
+    watcher.fireParser('arenaMatchEnd', matchEnd)
     await flushPromises()
 
     expect(events).toHaveLength(1)
     expect(events[0].bracket).toBe('solo-shuffle')
-    expect(events[0].roundNumber).toBe(1)
+    expect(events[0].roundNumber).toBeUndefined()
     expect(typeof events[0].sessionId).toBe('string')
   })
 })
@@ -442,13 +445,13 @@ describe('RecorderStateMachine — timeline accumulation', () => {
     expect(events[0].timeline).toHaveLength(0)
   })
 
-  it('resets timeline between Solo Shuffle rounds', async () => {
+  it('accumulates events from all rounds into one session timeline', async () => {
     watcher.fireParser('arenaZoneEntered', zoneEntered)
     await flushPromises()
 
     const roundStart = new Date('2026-04-15T20:00:15Z')
 
-    // Round 1 — one event
+    // Round 1 fires ARENA_MATCH_START and triggers recording
     watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: roundStart })
     watcher.fireParser('spellCast', {
       casterGuid: 'Player-A',
@@ -460,29 +463,26 @@ describe('RecorderStateMachine — timeline accumulation', () => {
       timestamp: new Date(roundStart.getTime() + 5_000)
     })
 
-    const round1Events: ProcessingRequiredEvent[] = []
-    machine.on('processingRequired', (e) => round1Events.push(e))
-
-    watcher.fireParser('soloShuffleRoundEnd', { ...matchEndRound, roundNumber: 1 })
-    await flushPromises()
-
-    expect(round1Events[0].timeline).toHaveLength(1)
-
-    // Round 2 — no events — timeline should be empty
-    const round2Start = new Date('2026-04-15T20:02:00Z')
-    watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: round2Start })
-
-    const round2Events: ProcessingRequiredEvent[] = []
-    machine.on('processingRequired', (e) => round2Events.push(e))
-
-    watcher.fireParser('soloShuffleRoundEnd', {
-      ...matchEndRound,
-      roundNumber: 2,
-      timestamp: new Date('2026-04-15T20:03:30Z')
+    // Round 2 fires ARENA_MATCH_START (status = recording → ignored for state, events still tracked)
+    watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: new Date(roundStart.getTime() + 120_000) })
+    watcher.fireParser('spellCast', {
+      casterGuid: 'Player-B',
+      targetGuid: 'Player-A',
+      targetFlags: UNIT_FLAG_REACTION_HOSTILE,
+      spellId: 118,
+      spellName: 'Polymorph',
+      eventCategory: 'cc',
+      timestamp: new Date(roundStart.getTime() + 125_000)
     })
+
+    const events: ProcessingRequiredEvent[] = []
+    machine.on('processingRequired', (e) => events.push(e))
+
+    watcher.fireParser('arenaMatchEnd', matchEnd)
     await flushPromises()
 
-    expect(round2Events[0].timeline).toHaveLength(0)
+    // Both events from both rounds end up in the single session timeline
+    expect(events[0].timeline).toHaveLength(2)
   })
 })
 
@@ -729,14 +729,14 @@ describe('RecorderStateMachine — death analysis: unusedDefensives', () => {
     expect(deathEv.unusedDefensives).toContain('Trinket')
   })
 
-  it('cooldowns reset between Solo Shuffle rounds', async () => {
+  it('Ice Block used early in session appears as not available at death later in session', async () => {
     watcher.fireParser('arenaZoneEntered', zoneEntered)
     await flushPromises()
 
-    const round1Start = new Date('2026-04-15T20:00:15Z')
+    const sessionStart = new Date('2026-04-15T20:00:15Z')
+    watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: sessionStart })
 
-    // Round 1: Mage uses Ice Block at T+10s
-    watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: round1Start })
+    // Mage uses Ice Block at T+10s
     watcher.fireParser('spellCast', {
       casterGuid: 'Player-A',
       casterName: 'Frostmage-Stormrage',
@@ -746,33 +746,25 @@ describe('RecorderStateMachine — death analysis: unusedDefensives', () => {
       spellId: 45438,
       spellName: 'Ice Block',
       eventCategory: 'defensive',
-      timestamp: new Date(round1Start.getTime() + 10_000)
+      timestamp: new Date(sessionStart.getTime() + 10_000)
     })
-    watcher.fireParser('soloShuffleRoundEnd', { ...matchEndRound, roundNumber: 1 })
-    await flushPromises()
 
-    // Round 2: same Mage dies at T+5s — cooldown tracker was reset, Ice Block should appear
-    const round2Start = new Date('2026-04-15T20:02:00Z')
-    watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: round2Start })
-
+    // Same Mage dies at T+30s — Ice Block is on cooldown (used 20s ago, CD is 240s)
     watcher.fireParser('unitDied', {
       unitGuid: 'Player-A',
       unitName: 'Frostmage-Stormrage',
       destFlags: 0x511,
-      timestamp: new Date(round2Start.getTime() + 5_000)
+      timestamp: new Date(sessionStart.getTime() + 30_000)
     })
 
-    const round2Events: ProcessingRequiredEvent[] = []
-    machine.on('processingRequired', (e) => round2Events.push(e))
-    watcher.fireParser('soloShuffleRoundEnd', {
-      ...matchEndRound,
-      roundNumber: 2,
-      timestamp: new Date('2026-04-15T20:03:30Z')
-    })
+    const events: ProcessingRequiredEvent[] = []
+    machine.on('processingRequired', (e) => events.push(e))
+    watcher.fireParser('arenaMatchEnd', matchEnd)
     await flushPromises()
 
-    const deathEv = round2Events[0].timeline.find((e) => e.type === 'death-player')!
-    expect(deathEv.unusedDefensives).toContain('Ice Block')
+    const deathEv = events[0].timeline.find((e) => e.type === 'death-player')!
+    // Ice Block was used 20s before death — still on cooldown, should NOT appear as unused
+    expect(deathEv.unusedDefensives ?? []).not.toContain('Ice Block')
   })
 })
 

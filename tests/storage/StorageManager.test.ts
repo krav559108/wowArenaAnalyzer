@@ -100,9 +100,9 @@ describe('buildDirName', () => {
     expect(buildDirName(event)).toBe('2026-04-15_NagrandArena_3v3_LOSS')
   })
 
-  it('formats a Solo Shuffle directory name with round number', () => {
+  it('formats a Solo Shuffle directory name without round number', () => {
     const name = buildDirName(EVENT_SS_R3)
-    expect(name).toBe('2026-04-15_TigersPeak_SoloShuffle_R3_LOSS')
+    expect(name).toBe('2026-04-15_TigersPeak_SoloShuffle_LOSS')
   })
 
   it('strips non-alphanumeric characters from zone name', () => {
