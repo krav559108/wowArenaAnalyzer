@@ -274,8 +274,18 @@ describe('RecorderStateMachine — Solo Shuffle session (Midnight: per-round rec
     const events: ProcessingRequiredEvent[] = []
     machine.on('processingRequired', (e) => events.push(e))
 
+    // Each round ends on UNIT_DIED, then the next ARENA_MATCH_START starts a fresh recorder.
     for (let i = 0; i < 6; i++) {
-      watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: new Date(R1_START.getTime() + i * 90_000) })
+      const roundStart = new Date(R1_START.getTime() + i * 90_000)
+      watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: roundStart })
+      watcher.fireParser('unitDied', {
+        unitGuid: 'Player-Enemy',
+        unitName: 'EnemyPlayer-Realm',
+        destFlags: UNIT_FLAG_REACTION_HOSTILE,
+        unconscious: false,
+        timestamp: new Date(roundStart.getTime() + 60_000)
+      })
+      await flushPromises() // let endSoloShuffleRound complete and emit processingRequired
     }
     watcher.fireParser('arenaMatchEnd', { ...matchEnd, timestamp: new Date(R1_START.getTime() + 6 * 90_000) })
     await flushPromises()
@@ -284,7 +294,7 @@ describe('RecorderStateMachine — Solo Shuffle session (Midnight: per-round rec
     for (let i = 0; i < 6; i++) {
       expect(events[i]!.bracket).toBe('solo-shuffle')
       expect(events[i]!.roundNumber).toBe(i + 1)
-      expect(events[i]!.totalRoundsInSession).toBe(6)
+      expect(events[i]!.totalRoundsInSession).toBe(1) // each round is its own file now
       expect(typeof events[i]!.sessionId).toBe('string')
     }
     // All rounds share the same sessionId
@@ -388,7 +398,7 @@ describe('RecorderStateMachine — Solo Shuffle session (Midnight: per-round rec
     const events: ProcessingRequiredEvent[] = []
     machine.on('processingRequired', (e) => events.push(e))
 
-    // Round 1: Counterspell at +5s
+    // Round 1: Counterspell at +5s, round ends on enemy death at +60s
     watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: R1_START })
     watcher.fireParser('spellCast', {
       casterGuid: 'Player-A',
@@ -399,8 +409,16 @@ describe('RecorderStateMachine — Solo Shuffle session (Midnight: per-round rec
       eventCategory: 'interrupt',
       timestamp: new Date(R1_START.getTime() + 5_000)
     })
+    watcher.fireParser('unitDied', {
+      unitGuid: 'Player-Enemy',
+      unitName: 'EnemyPlayer-Realm',
+      destFlags: UNIT_FLAG_REACTION_HOSTILE,
+      unconscious: false,
+      timestamp: new Date(R1_START.getTime() + 60_000)
+    })
+    await flushPromises()
 
-    // Round 2: Polymorph at R2+5s
+    // Round 2: Polymorph at R2+5s, round ends on enemy death at R2+60s
     const R2_START = new Date(R1_START.getTime() + 90_000)
     watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: R2_START })
     watcher.fireParser('spellCast', {
@@ -412,18 +430,28 @@ describe('RecorderStateMachine — Solo Shuffle session (Midnight: per-round rec
       eventCategory: 'cc',
       timestamp: new Date(R2_START.getTime() + 5_000)
     })
+    watcher.fireParser('unitDied', {
+      unitGuid: 'Player-Enemy',
+      unitName: 'EnemyPlayer-Realm',
+      destFlags: UNIT_FLAG_REACTION_HOSTILE,
+      unconscious: false,
+      timestamp: new Date(R2_START.getTime() + 60_000)
+    })
+    await flushPromises()
 
     watcher.fireParser('arenaMatchEnd', { ...matchEnd, timestamp: new Date(R2_START.getTime() + 90_000) })
     await flushPromises()
 
     expect(events).toHaveLength(2)
-    // R1 has Counterspell only
-    expect(events[0]!.timeline).toHaveLength(1)
+    // R1 timeline: Counterspell + death-enemy (unitDied also appends to timeline)
+    expect(events[0]!.timeline).toHaveLength(2)
     expect(events[0]!.timeline[0]!.spellName).toBe('Counterspell')
-    // R2 has Polymorph only, timestamp relative to R2 start (≈5s)
-    expect(events[1]!.timeline).toHaveLength(1)
+    expect(events[0]!.timeline[1]!.type).toBe('death-enemy')
+    // R2 timeline: Polymorph + death-enemy; Polymorph timestamp relative to R2 start (≈5s)
+    expect(events[1]!.timeline).toHaveLength(2)
     expect(events[1]!.timeline[0]!.spellName).toBe('Polymorph')
     expect(events[1]!.timeline[0]!.timestamp).toBeCloseTo(5, 1)
+    expect(events[1]!.timeline[1]!.type).toBe('death-enemy')
   })
 })
 

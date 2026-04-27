@@ -416,30 +416,12 @@ export class RecorderStateMachine extends EventEmitter {
       void this.startRecorder()
     }
 
-    // Solo shuffle rounds 2-6: stay recording, finalize previous round and reset per-round state.
+    // Solo shuffle rounds 2-6: recorder was stopped on UNIT_DIED; start a fresh one here.
+    // (If we somehow receive ARENA_MATCH_START while still recording — e.g. UNIT_DIED was
+    // missed — fall through to the waiting-state handler below which is a no-op, letting
+    // onMatchEnd's fallback handle the cleanup when ARENA_MATCH_END arrives.)
     if (this.status === 'recording' && this.session !== null && this.session.isSoloShuffle) {
-      if (this.session.soloShuffleTimeoutId !== null) {
-        clearTimeout(this.session.soloShuffleTimeoutId)
-        this.session.soloShuffleTimeoutId = null
-      }
-      this.finalizeCurrentRound(e.timestamp)
-      this.session.roundNumber++
-      this.session.localTeam = e.localTeam
-      this.session.matchStartedAt = e.timestamp
-      this.session.pendingTimeline = []
-      this.session.currentRoundRealDeaths = []
-      this.session.playerCooldowns = new Map()
-      this.session.activeCCs = new Map()
-      this.session.drCounters = new Map()
-      this.session.recentDamageByGuid = new Map()
-      this.session.recentHealthByGuid = new Map()
-      this.session.pendingInterruptByCaster = new Map()
-      this.session.pendingInterruptByTarget = new Map()
-      this.session.teamDmgAccum = 0; this.session.enemyDmgAccum = 0
-      this.session.teamHealAccum = 0; this.session.enemyHealAccum = 0
-      this.session.teamDmgSamples = []; this.session.enemyDmgSamples = []
-      this.session.teamHealSamples = []; this.session.enemyHealSamples = []
-      console.warn(`[StateMachine] Solo shuffle round ${this.session.roundNumber} started`)
+      console.warn('[StateMachine] ARENA_MATCH_START while still recording in solo shuffle — UNIT_DIED was likely missed; ignoring')
       return
     }
 
@@ -458,6 +440,7 @@ export class RecorderStateMachine extends EventEmitter {
     }
     // Clear per-round state: all timestamps are relative to this match start.
     this.session.pendingTimeline = []
+    this.session.currentRoundRealDeaths = []
     this.session.playerCooldowns = new Map()
     this.session.activeCCs = new Map()
     this.session.drCounters = new Map()
@@ -470,6 +453,12 @@ export class RecorderStateMachine extends EventEmitter {
     this.session.teamDmgSamples = []; this.session.enemyDmgSamples = []
     this.session.teamHealSamples = []; this.session.enemyHealSamples = []
 
+    // Solo shuffle rounds 2-6: start a new recorder (previous was stopped on UNIT_DIED).
+    // Round 1 recorder was already started in onZoneEntered.
+    if (this.session.isSoloShuffle && this.session.roundNumber > 1) {
+      void this.startRecorder()
+    }
+
     this.transitionTo('recording', this.session.zoneName)
     console.warn(
       `[StateMachine] Match started: ${e.bracket} in ${e.zoneName} ` +
@@ -478,6 +467,18 @@ export class RecorderStateMachine extends EventEmitter {
   }
 
   private onMatchEnd(result: ArenaResult, durationSecs: number, matchEndTimestamp: Date): void {
+    // Normal solo shuffle path: recorder was already stopped on the last UNIT_DIED and
+    // processingRequired was emitted; just clean up the session and go idle.
+    if (this.session?.isSoloShuffle && this.status === 'waiting') {
+      if (this.session.soloShuffleTimeoutId !== null) {
+        clearTimeout(this.session.soloShuffleTimeoutId)
+      }
+      this.session = null
+      this.playerClassInferred.clear()
+      this.transitionTo('idle')
+      return
+    }
+
     if (this.status !== 'recording' || this.session === null) return
 
     // Cancel any pending solo-shuffle timeout — we got the match end event
@@ -631,11 +632,14 @@ export class RecorderStateMachine extends EventEmitter {
   private async startRecorder(): Promise<void> {
     if (this.session === null) return
 
+    // roundNumber is 0 on zone enter (before round 1 starts), so use 1 for the filename.
+    // For rounds 2-6, roundNumber is already the correct value (incremented in onMatchStart).
+    const fileRound = this.session.roundNumber === 0 ? 1 : this.session.roundNumber
     const rawPath = buildRawPath(
       this.options.rawRecordingsDir,
       this.session.zoneName,
       this.session.sessionId,
-      this.session.roundNumber + 1
+      fileRound
     )
 
     this.session.rawOutputPath = rawPath
@@ -644,6 +648,7 @@ export class RecorderStateMachine extends EventEmitter {
       await this.recorder.start(rawPath, this.options.recorder)
       // Set AFTER FFmpeg confirms it's capturing — this timestamp is used to compute
       // the trim offset, so it must reflect when actual frames started being written.
+      if (this.session === null) return  // session cleared while awaiting start (e.g. arenaMatchEnd arrived first)
       this.session.recordingStartedAt = new Date()
       console.warn(`[StateMachine] Recorder started: ${rawPath}`)
     } catch (err) {
@@ -652,6 +657,73 @@ export class RecorderStateMachine extends EventEmitter {
       this.session = null
       this.transitionTo('error')
       this.emit('error', { message: `Failed to start recording: ${message}` })
+    }
+  }
+
+  // Stops the recorder at the end of a solo shuffle round, emits processingRequired for
+  // that round, then transitions back to 'waiting' so the next ARENA_MATCH_START can
+  // start a fresh recorder.
+  private async endSoloShuffleRound(endTimestamp: Date): Promise<void> {
+    if (this.status !== 'recording' || this.session === null || this.session.matchStartedAt === null || this.session.rawOutputPath === null) return
+
+    const {
+      zoneName, bracket, sessionId, recordingStartedAt, roundNumber
+    } = this.session
+
+    if (bracket === null) return
+
+    const matchStartedAt = this.session.matchStartedAt
+    const durationSecs = Math.max(0, (endTimestamp.getTime() - matchStartedAt.getTime()) / 1000)
+    const result = computeRoundResult(this.session.currentRoundRealDeaths)
+    const timeline = [...this.session.pendingTimeline]
+    const knownSpecs = Object.fromEntries(this.session.knownSpecs)
+    const healerNames = [...this.session.healerNames.keys()]
+    const playerRatings = Object.fromEntries(this.session.playerRatings)
+    const teamDmgBySecond = buildChartBySecond(this.session.teamDmgSamples, durationSecs)
+    const enemyDmgBySecond = buildChartBySecond(this.session.enemyDmgSamples, durationSecs)
+    const teamHealBySecond = buildChartBySecond(this.session.teamHealSamples, durationSecs)
+    const enemyHealBySecond = buildChartBySecond(this.session.enemyHealSamples, durationSecs)
+    const ratingBefore = this.session.ratingBefore ?? undefined
+    const ratingAfter = this.session.ratingAfter ?? undefined
+
+    // Transition and reset per-round state before awaiting stop, so that any
+    // stray events arriving during the async stop don't affect the new round.
+    const stopPromise = this.recorder.stop()
+    this.transitionTo('waiting', zoneName)
+
+    this.session.rawOutputPath = null
+    this.session.matchStartedAt = null
+
+    try {
+      const finalPath = await stopPromise
+      this.emit('processingRequired', {
+        rawPath: finalPath,
+        zoneName,
+        bracket,
+        result,
+        durationSecs,
+        matchStartedAt,
+        recordingStartedAt,
+        timeline,
+        knownSpecs,
+        healerNames,
+        playerRatings,
+        teamDmgBySecond,
+        enemyDmgBySecond,
+        teamHealBySecond,
+        enemyHealBySecond,
+        ratingBefore,
+        ratingAfter,
+        roundNumber,
+        sessionId,
+        totalRoundsInSession: 1
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error('[StateMachine] endSoloShuffleRound: recorder.stop() failed:', message)
+      this.session = null
+      this.transitionTo('error')
+      this.emit('error', { message: `Failed to stop recording: ${message}` })
     }
   }
 
@@ -954,6 +1026,12 @@ export class RecorderStateMachine extends EventEmitter {
       unusedDefensives: unusedDefensives.length > 0 ? unusedDefensives : undefined,
       deathSummary: deathSummary.length > 0 ? deathSummary : undefined
     })
+
+    // Solo shuffle: end this round's recording on any real player death.
+    // The ~35 s gap before the next ARENA_MATCH_START lets FFmpeg finalise cleanly.
+    if (this.session.isSoloShuffle && !e.unconscious) {
+      void this.endSoloShuffleRound(e.timestamp)
+    }
   }
 
   private onSpellInterruptSuccess(e: SpellInterruptSuccessEvent): void {

@@ -173,7 +173,7 @@ app.whenReady().then(() => {
   registerConfigIpc(configStore)
   registerLogAnalysisIpc(configStore)
 
-  const { stateMachine, storageManager } = createPipeline()
+  const { recorder, stateMachine, storageManager } = createPipeline()
 
   // Register ipcMain.handle commands once — re-registration throws in Electron.
   registerRecorderIpc(stateMachine)
@@ -186,10 +186,21 @@ app.whenReady().then(() => {
       createWindow(stateMachine, storageManager)
     }
   })
+
+  // Stop any active FFmpeg capture before quitting so macOS releases the
+  // screen recording indicator immediately (otherwise the orphaned FFmpeg
+  // process keeps holding the AVFoundation session).
+  app.on('before-quit', (event) => {
+    if (!recorder.isRecording()) return
+    event.preventDefault()
+    recorder
+      .stop()
+      .catch((err: Error) => console.error('[Main] Failed to stop recorder on quit:', err.message))
+      .finally(() => app.quit())
+  })
 })
 
+// Quit on window close on all platforms — this is a utility app, not a menu-bar app.
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
+  app.quit()
 })
