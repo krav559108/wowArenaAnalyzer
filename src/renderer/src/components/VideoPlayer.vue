@@ -764,19 +764,6 @@ function playerRating(name: string): number | undefined {
               >({{ ev.interruptedSpell }})</span>
             </div>
 
-            <!-- Unused defensives -->
-            <div
-              v-if="ev.unusedDefensives && ev.unusedDefensives.length > 0"
-              class="flex flex-wrap gap-1 mt-0.5 ml-12 pb-0.5"
-            >
-              <span class="text-zinc-600 mr-0.5">could use:</span>
-              <span
-                v-for="def in ev.unusedDefensives"
-                :key="def"
-                class="bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded"
-              >{{ def }}</span>
-            </div>
-
             <!-- Death Summary — last 3 seconds of incoming damage -->
             <div
               v-if="(ev.type === 'death-player' || ev.type === 'death-enemy') && ev.deathSummary && ev.deathSummary.length > 0"

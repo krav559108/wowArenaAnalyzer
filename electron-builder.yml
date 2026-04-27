@@ -47,3 +47,19 @@ dmg:
       y: 220
       type: link
       path: /Applications
+
+# ---------------------------------------------------------------------------
+# Windows
+# ---------------------------------------------------------------------------
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  publisherName: Aleksandr Kravchenko
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true

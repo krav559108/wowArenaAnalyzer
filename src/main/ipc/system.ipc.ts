@@ -15,11 +15,17 @@ import { ADDON_RELATIVE_PATH, COMBAT_LOG_RELATIVE_PATH } from '@shared/constants
 import type { AppConfig, CaptureDevice, AudioDevice } from '@shared/ipc.types'
 
 export function registerSystemIpc(configStore: Store<AppConfig>): void {
+  // Return the current process platform so renderer can adapt onboarding flow.
+  ipcMain.handle('system:getPlatform', (): { platform: string } => {
+    return { platform: process.platform }
+  })
+
   // Check whether Homebrew is installed and return its path.
-  // Must be checked before showing `brew install ffmpeg` instructions.
-  // Falls back to known Homebrew prefixes when `which` fails (Finder-launched apps
-  // have a minimal PATH that excludes /opt/homebrew/bin and /usr/local/bin).
+  // On Windows, Homebrew doesn't exist — return found:true as a no-op so the
+  // onboarding brew step auto-passes and the FFmpeg check runs immediately.
   ipcMain.handle('system:checkBrew', (): { found: boolean; path: string | null } => {
+    if (process.platform === 'win32') return { found: true, path: null }
+
     try {
       const p = execSync('which brew', { stdio: ['pipe', 'pipe', 'pipe'] })
         .toString()
@@ -47,10 +53,11 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
     }
   })
 
-  // Check macOS Screen Recording permission status.
+  // Check Screen Recording permission status. On Windows, always granted (no permission model).
   ipcMain.handle(
     'system:checkScreenPermission',
     (): { status: 'granted' | 'denied' | 'not-determined' } => {
+      if (process.platform === 'win32') return { status: 'granted' }
       const raw = ScreenRecorder.checkScreenPermission()
       // Map 'restricted' → 'denied' for simplicity in the UI
       const status = raw === 'restricted' ? 'denied' : raw
@@ -58,13 +65,11 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
     }
   )
 
-  // Trigger the macOS screen recording permission prompt by attempting a capture.
-  // desktopCapturer.getSources() causes macOS to show the permission dialog (if
-  // not-determined) and register the app in System Settings → Screen Recording.
-  // Returns the permission status after the attempt.
+  // Trigger the macOS screen recording permission prompt. No-op on Windows.
   ipcMain.handle(
     'system:requestScreenPermission',
     async (): Promise<{ status: 'granted' | 'denied' | 'not-determined' }> => {
+      if (process.platform === 'win32') return { status: 'granted' }
       try {
         await desktopCapturer.getSources({ types: ['screen'] })
       } catch {
@@ -94,11 +99,13 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
     }
   )
 
-  // Open the Screen Recording section of macOS System Settings.
+  // Open the Screen Recording section of macOS System Settings. No-op on Windows.
   ipcMain.handle('system:openSystemPreferences', (): void => {
-    void shell.openExternal(
-      'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
-    )
+    if (process.platform !== 'win32') {
+      void shell.openExternal(
+        'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
+      )
+    }
   })
 
   // Show a native folder picker dialog and return the selected path.
@@ -118,9 +125,16 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
     return { path: canceled || filePaths.length === 0 ? null : (filePaths[0] ?? null) }
   })
 
-  // List AVFoundation video capture devices so the user can pick their screen.
-  // Parses `ffmpeg -f avfoundation -list_devices true -i ""` stderr output.
+  // List video capture devices for the current platform.
+  // macOS: parses AVFoundation device list from FFmpeg.
+  // Windows: gdigrab always captures the full desktop — returns a single synthetic entry.
   ipcMain.handle('system:listCaptureDevices', async (): Promise<CaptureDevice[]> => {
+    if (process.platform === 'win32') {
+      const primary = electronScreen.getPrimaryDisplay()
+      const { width, height } = primary.size
+      return [{ index: 0, name: 'Desktop', isScreen: true, isPrimary: true, resolution: `${width}×${height}` }]
+    }
+
     return new Promise((resolve) => {
       let ffmpegPath: string
       try {
@@ -185,8 +199,10 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
     }
   )
 
-  // List AVFoundation audio capture devices.
+  // List audio capture devices. Windows: audio capture via DirectShow not yet supported.
   ipcMain.handle('system:listAudioDevices', async (): Promise<AudioDevice[]> => {
+    if (process.platform === 'win32') return []
+
     return new Promise((resolve) => {
       let ffmpegPath: string
       try {

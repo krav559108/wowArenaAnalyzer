@@ -244,10 +244,12 @@ describe('RecorderStateMachine — zone exit aborts recording', () => {
   })
 })
 
-describe('RecorderStateMachine — Solo Shuffle session (Midnight: one recording per session)', () => {
+describe('RecorderStateMachine — Solo Shuffle session (Midnight: per-round recordings)', () => {
   let watcher: FakeWatcher
   let recorder: FakeRecorder
   let machine: RecorderStateMachine
+
+  const R1_START = new Date('2026-04-15T20:00:15Z')
 
   beforeEach(() => {
     watcher = new FakeWatcher()
@@ -261,7 +263,7 @@ describe('RecorderStateMachine — Solo Shuffle session (Midnight: one recording
 
     // 6 ARENA_MATCH_START events (rounds 1–6) — only round 1 triggers waiting→recording
     for (let i = 0; i < 6; i++) {
-      watcher.fireParser('arenaMatchStart', matchStartSS)
+      watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: new Date(R1_START.getTime() + i * 90_000) })
     }
     // ONE ARENA_MATCH_END for the whole session
     watcher.fireParser('arenaMatchEnd', matchEnd)
@@ -272,21 +274,163 @@ describe('RecorderStateMachine — Solo Shuffle session (Midnight: one recording
     expect(machine.getStatus()).toBe('idle')
   })
 
-  it('emits processingRequired with sessionId for solo shuffle; no roundNumber', async () => {
+  it('emits one processingRequired per round with correct metadata', async () => {
     watcher.fireParser('arenaZoneEntered', zoneEntered)
     await flushPromises()
 
     const events: ProcessingRequiredEvent[] = []
     machine.on('processingRequired', (e) => events.push(e))
 
-    watcher.fireParser('arenaMatchStart', matchStartSS)
-    watcher.fireParser('arenaMatchEnd', matchEnd)
+    for (let i = 0; i < 6; i++) {
+      watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: new Date(R1_START.getTime() + i * 90_000) })
+    }
+    watcher.fireParser('arenaMatchEnd', { ...matchEnd, timestamp: new Date(R1_START.getTime() + 6 * 90_000) })
     await flushPromises()
 
-    expect(events).toHaveLength(1)
-    expect(events[0].bracket).toBe('solo-shuffle')
-    expect(events[0].roundNumber).toBeUndefined()
-    expect(typeof events[0].sessionId).toBe('string')
+    expect(events).toHaveLength(6)
+    for (let i = 0; i < 6; i++) {
+      expect(events[i]!.bracket).toBe('solo-shuffle')
+      expect(events[i]!.roundNumber).toBe(i + 1)
+      expect(events[i]!.totalRoundsInSession).toBe(6)
+      expect(typeof events[i]!.sessionId).toBe('string')
+    }
+    // All rounds share the same sessionId
+    expect(new Set(events.map((e) => e.sessionId)).size).toBe(1)
+  })
+
+  it('determines round result WIN from enemy real death', async () => {
+    watcher.fireParser('arenaZoneEntered', zoneEntered)
+    await flushPromises()
+
+    // Round 1
+    watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: R1_START })
+    // Enemy player dies (not unconscious)
+    watcher.fireParser('unitDied', {
+      unitGuid: 'Player-Enemy',
+      unitName: 'EnemyPlayer-Realm',
+      destFlags: UNIT_FLAG_REACTION_HOSTILE,
+      unconscious: false,
+      timestamp: new Date(R1_START.getTime() + 60_000)
+    })
+
+    const events: ProcessingRequiredEvent[] = []
+    machine.on('processingRequired', (e) => events.push(e))
+
+    // Round 2 finalizes round 1
+    const R2_START = new Date(R1_START.getTime() + 90_000)
+    watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: R2_START })
+    watcher.fireParser('arenaMatchEnd', { ...matchEnd, timestamp: new Date(R2_START.getTime() + 90_000) })
+    await flushPromises()
+
+    expect(events[0]!.result).toBe('WIN')
+    expect(events[0]!.roundNumber).toBe(1)
+  })
+
+  it('determines round result LOSS from friendly real death', async () => {
+    watcher.fireParser('arenaZoneEntered', zoneEntered)
+    await flushPromises()
+
+    const events: ProcessingRequiredEvent[] = []
+    machine.on('processingRequired', (e) => events.push(e))
+
+    // Round 1
+    watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: R1_START })
+    // Friendly player dies
+    watcher.fireParser('unitDied', {
+      unitGuid: 'Player-Ally',
+      unitName: 'AllyPlayer-Realm',
+      destFlags: 0x511, // friendly
+      unconscious: false,
+      timestamp: new Date(R1_START.getTime() + 60_000)
+    })
+    // One enemy also dies (friendly > enemy → LOSS)
+    // (more friendlies dead, so LOSS)
+
+    const R2_START = new Date(R1_START.getTime() + 90_000)
+    watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: R2_START })
+    watcher.fireParser('arenaMatchEnd', { ...matchEnd, timestamp: new Date(R2_START.getTime() + 90_000) })
+    await flushPromises()
+
+    expect(events[0]!.result).toBe('LOSS')
+  })
+
+  it('ignores unconscious deaths for round result', async () => {
+    watcher.fireParser('arenaZoneEntered', zoneEntered)
+    await flushPromises()
+
+    const events: ProcessingRequiredEvent[] = []
+    machine.on('processingRequired', (e) => events.push(e))
+
+    watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: R1_START })
+    // Enemy "dies" but unconscious=true (Feign Death / similar) — should NOT count
+    watcher.fireParser('unitDied', {
+      unitGuid: 'Player-Enemy',
+      unitName: 'EnemyHunter-Realm',
+      destFlags: UNIT_FLAG_REACTION_HOSTILE,
+      unconscious: true,
+      timestamp: new Date(R1_START.getTime() + 30_000)
+    })
+    // Friendly dies for real — this IS counted
+    watcher.fireParser('unitDied', {
+      unitGuid: 'Player-Ally',
+      unitName: 'AllyWarrior-Realm',
+      destFlags: 0x511,
+      unconscious: false,
+      timestamp: new Date(R1_START.getTime() + 45_000)
+    })
+
+    const R2_START = new Date(R1_START.getTime() + 90_000)
+    watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: R2_START })
+    watcher.fireParser('arenaMatchEnd', { ...matchEnd, timestamp: new Date(R2_START.getTime() + 90_000) })
+    await flushPromises()
+
+    // Enemy unconscious death not counted → 0 enemy, 1 friendly → LOSS
+    expect(events[0]!.result).toBe('LOSS')
+  })
+
+  it('each round gets its own isolated timeline', async () => {
+    watcher.fireParser('arenaZoneEntered', zoneEntered)
+    await flushPromises()
+
+    const events: ProcessingRequiredEvent[] = []
+    machine.on('processingRequired', (e) => events.push(e))
+
+    // Round 1: Counterspell at +5s
+    watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: R1_START })
+    watcher.fireParser('spellCast', {
+      casterGuid: 'Player-A',
+      targetGuid: 'Player-B',
+      targetFlags: UNIT_FLAG_REACTION_HOSTILE,
+      spellId: 2139,
+      spellName: 'Counterspell',
+      eventCategory: 'interrupt',
+      timestamp: new Date(R1_START.getTime() + 5_000)
+    })
+
+    // Round 2: Polymorph at R2+5s
+    const R2_START = new Date(R1_START.getTime() + 90_000)
+    watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: R2_START })
+    watcher.fireParser('spellCast', {
+      casterGuid: 'Player-B',
+      targetGuid: 'Player-A',
+      targetFlags: UNIT_FLAG_REACTION_HOSTILE,
+      spellId: 118,
+      spellName: 'Polymorph',
+      eventCategory: 'cc',
+      timestamp: new Date(R2_START.getTime() + 5_000)
+    })
+
+    watcher.fireParser('arenaMatchEnd', { ...matchEnd, timestamp: new Date(R2_START.getTime() + 90_000) })
+    await flushPromises()
+
+    expect(events).toHaveLength(2)
+    // R1 has Counterspell only
+    expect(events[0]!.timeline).toHaveLength(1)
+    expect(events[0]!.timeline[0]!.spellName).toBe('Counterspell')
+    // R2 has Polymorph only, timestamp relative to R2 start (≈5s)
+    expect(events[1]!.timeline).toHaveLength(1)
+    expect(events[1]!.timeline[0]!.spellName).toBe('Polymorph')
+    expect(events[1]!.timeline[0]!.timestamp).toBeCloseTo(5, 1)
   })
 })
 
@@ -445,14 +589,13 @@ describe('RecorderStateMachine — timeline accumulation', () => {
     expect(events[0].timeline).toHaveLength(0)
   })
 
-  it('accumulates events from all rounds into one session timeline', async () => {
+  it('non-solo-shuffle match collects all events into one timeline', async () => {
     watcher.fireParser('arenaZoneEntered', zoneEntered)
     await flushPromises()
 
     const roundStart = new Date('2026-04-15T20:00:15Z')
 
-    // Round 1 fires ARENA_MATCH_START and triggers recording
-    watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: roundStart })
+    watcher.fireParser('arenaMatchStart', { ...matchStart2v2, timestamp: roundStart })
     watcher.fireParser('spellCast', {
       casterGuid: 'Player-A',
       targetGuid: 'Player-B',
@@ -462,9 +605,6 @@ describe('RecorderStateMachine — timeline accumulation', () => {
       eventCategory: 'interrupt',
       timestamp: new Date(roundStart.getTime() + 5_000)
     })
-
-    // Round 2 fires ARENA_MATCH_START (status = recording → ignored for state, events still tracked)
-    watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: new Date(roundStart.getTime() + 120_000) })
     watcher.fireParser('spellCast', {
       casterGuid: 'Player-B',
       targetGuid: 'Player-A',
@@ -472,7 +612,7 @@ describe('RecorderStateMachine — timeline accumulation', () => {
       spellId: 118,
       spellName: 'Polymorph',
       eventCategory: 'cc',
-      timestamp: new Date(roundStart.getTime() + 125_000)
+      timestamp: new Date(roundStart.getTime() + 30_000)
     })
 
     const events: ProcessingRequiredEvent[] = []
@@ -481,8 +621,9 @@ describe('RecorderStateMachine — timeline accumulation', () => {
     watcher.fireParser('arenaMatchEnd', matchEnd)
     await flushPromises()
 
-    // Both events from both rounds end up in the single session timeline
-    expect(events[0].timeline).toHaveLength(2)
+    // Both spell events are in the single timeline
+    expect(events).toHaveLength(1)
+    expect(events[0]!.timeline).toHaveLength(2)
   })
 })
 

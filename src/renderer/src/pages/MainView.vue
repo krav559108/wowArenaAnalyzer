@@ -13,7 +13,7 @@ const recordingsStore = useRecordingsStore()
 const { status, currentZone, lastError } = storeToRefs(appStore)
 const { selected } = storeToRefs(recordingsStore)
 
-const { deleteRecording, openFolder } = useMainView()
+const { deleteRecording, deleteGroup, openFolder } = useMainView()
 
 const settingsOpen = ref(false)
 const activeTab = ref<'2v2' | '3v3' | 'solo-shuffle' | 'skirmish'>('2v2')
@@ -227,6 +227,7 @@ const statusTextClass = computed(() => {
             class="flex-1 min-h-0"
             :recordings="filteredRecordings"
             :on-delete="deleteRecording"
+            :on-delete-group="deleteGroup"
             :on-open-folder="openFolder"
           />
         </aside>

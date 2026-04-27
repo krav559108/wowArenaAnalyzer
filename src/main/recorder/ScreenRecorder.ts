@@ -16,7 +16,7 @@ import type { ChildProcess } from 'child_process'
 import { systemPreferences } from 'electron'
 import { existsSync } from 'fs'
 import { mkdir } from 'fs/promises'
-import { dirname } from 'path'
+import { dirname, join } from 'path'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -25,9 +25,9 @@ import { dirname } from 'path'
 export type ScreenPermissionStatus = 'granted' | 'denied' | 'not-determined' | 'restricted'
 
 export interface RecorderOptions {
-  // AVFoundation video device index or name ("Capture screen 0").
+  // AVFoundation video device index or name ("Capture screen 0"). macOS only.
   captureDevice?: string
-  // AVFoundation audio device index string ("0"). null / undefined = no audio.
+  // AVFoundation audio device index string ("0"). null / undefined = no audio. macOS only.
   audioDevice?: string | null
   // Video bitrate in kbps
   bitrateKbps?: number
@@ -37,6 +37,9 @@ export interface RecorderOptions {
   resolution?: string
   // Milliseconds to wait for FFmpeg to confirm capture started
   startupTimeoutMs?: number
+  // Windows only: pre-detected H.264 encoder (h264_nvenc / h264_amf / h264_qsv / libx264).
+  // If omitted, detectWindowsEncoder() probes automatically on first start().
+  encoder?: string
 }
 
 export interface RecorderEventMap {
@@ -49,9 +52,10 @@ export interface RecorderEventMap {
 // Constants
 // ---------------------------------------------------------------------------
 
-// Default AVFoundation screen device index. Index 0 is typically the built-in
-// camera; index 1 is the first screen. Verify on the target machine.
-const DEFAULT_CAPTURE_DEVICE = '1:none'
+// Default AVFoundation screen device. Using the device name is more stable than
+// an index — indices shift when cameras (e.g. iPhone via Continuity Camera) are
+// added or removed. "Capture screen 0" is the primary display on macOS.
+const DEFAULT_CAPTURE_DEVICE = 'Capture screen 0:none'
 const DEFAULT_BITRATE_KBPS = 8000
 const DEFAULT_FPS = 30
 const DEFAULT_STARTUP_TIMEOUT_MS = 10_000
@@ -74,6 +78,8 @@ export class ScreenRecorder extends EventEmitter {
   private ffmpegProcess: ChildProcess | null = null
   private currentOutputPath: string | null = null
   private stderrLines: string[] = []
+
+  private static cachedWindowsEncoder: string | null = null
 
   override emit<K extends keyof RecorderEventMap>(event: K, payload: RecorderEventMap[K]): boolean {
     return super.emit(event, payload)
@@ -104,6 +110,29 @@ export class ScreenRecorder extends EventEmitter {
   // excludes Homebrew. We therefore fall back to the two known Homebrew prefixes
   // after `which` fails: /opt/homebrew (Apple Silicon) and /usr/local (Intel).
   static resolveFfmpegPath(): string {
+    if (process.platform === 'win32') {
+      try {
+        const p = execSync('where ffmpeg', { stdio: ['pipe', 'pipe', 'pipe'] })
+          .toString()
+          .trim()
+          .split('\n')[0]
+          ?.trim()
+        if (p && p.length > 0) return p
+      } catch {
+        // where failed — try known install locations below.
+      }
+      const winCandidates = [
+        join(process.env.ProgramFiles ?? 'C:\\Program Files', 'ffmpeg', 'bin', 'ffmpeg.exe'),
+        join(process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'ffmpeg', 'bin', 'ffmpeg.exe'),
+        join(process.env.LOCALAPPDATA ?? '', 'ffmpeg', 'bin', 'ffmpeg.exe'),
+        'C:\\ffmpeg\\bin\\ffmpeg.exe',
+      ]
+      for (const candidate of winCandidates) {
+        if (existsSync(candidate)) return candidate
+      }
+      throw new Error('FFmpeg not found. Download from https://ffmpeg.org/download.html and add to PATH.')
+    }
+
     try {
       const p = execSync('which ffmpeg', { stdio: ['pipe', 'pipe', 'pipe'] })
         .toString()
@@ -124,7 +153,40 @@ export class ScreenRecorder extends EventEmitter {
   // Returns the current Screen Recording permission status.
   // 'granted' is required before start() will succeed.
   static checkScreenPermission(): ScreenPermissionStatus {
+    if (process.platform === 'win32') return 'granted'
     return systemPreferences.getMediaAccessStatus('screen') as ScreenPermissionStatus
+  }
+
+  // Probes available H.264 encoders on Windows and returns the best one.
+  // Result is cached — probing runs only once per process lifetime.
+  // Order: h264_nvenc (Nvidia) → h264_amf (AMD) → h264_qsv (Intel) → libx264 (CPU fallback).
+  static async detectWindowsEncoder(ffmpegPath: string): Promise<string> {
+    if (ScreenRecorder.cachedWindowsEncoder !== null) {
+      return ScreenRecorder.cachedWindowsEncoder
+    }
+
+    const candidates = ['h264_nvenc', 'h264_amf', 'h264_qsv', 'libx264']
+
+    for (const enc of candidates) {
+      const available = await new Promise<boolean>((resolve) => {
+        const proc = spawn(
+          ffmpegPath,
+          ['-f', 'lavfi', '-i', 'color=black:s=2x2:d=0.1', '-vcodec', enc, '-frames:v', '1', '-f', 'null', '-'],
+          { stdio: 'ignore' }
+        )
+        const timer = setTimeout(() => { proc.kill(); resolve(false) }, 5000)
+        proc.on('close', (code) => { clearTimeout(timer); resolve(code === 0) })
+        proc.on('error', () => { clearTimeout(timer); resolve(false) })
+      })
+      if (available) {
+        console.warn(`[ScreenRecorder] Windows encoder detected: ${enc}`)
+        ScreenRecorder.cachedWindowsEncoder = enc
+        return enc
+      }
+    }
+
+    ScreenRecorder.cachedWindowsEncoder = 'libx264'
+    return 'libx264'
   }
 
   // Runs `ffmpeg -f avfoundation -list_devices true -i ""` and returns the output.
@@ -189,7 +251,11 @@ export class ScreenRecorder extends EventEmitter {
 
     await mkdir(dirname(outputPath), { recursive: true })
 
-    const args = buildFfmpegArgs({ device, audioDevice, bitrate, fps, resolution, outputPath })
+    const encoder = process.platform === 'win32'
+      ? (options.encoder ?? await ScreenRecorder.detectWindowsEncoder(ffmpegPath))
+      : 'h264_videotoolbox'
+
+    const args = buildFfmpegArgs({ device, audioDevice, bitrate, fps, resolution, outputPath, encoder })
 
     return new Promise<void>((resolve, reject) => {
       this.stderrLines = []
@@ -339,9 +405,17 @@ interface FfmpegArgConfig {
   fps: number
   resolution?: string  // e.g. "1920x1080" — undefined means no scaling
   outputPath: string
+  encoder: string  // h264_videotoolbox on macOS; h264_nvenc/amf/qsv/libx264 on Windows
 }
 
 function buildFfmpegArgs(cfg: FfmpegArgConfig): string[] {
+  if (process.platform === 'win32') {
+    return buildWindowsArgs(cfg)
+  }
+  return buildMacArgs(cfg)
+}
+
+function buildMacArgs(cfg: FfmpegArgConfig): string[] {
   // Build the AVFoundation device string: "videoIdx:audioIdx" or "videoIdx:none"
   const videoIdx = cfg.device.includes(':') ? cfg.device.split(':')[0]! : cfg.device
   const audioIdx = cfg.audioDevice !== null ? cfg.audioDevice : 'none'
@@ -352,32 +426,77 @@ function buildFfmpegArgs(cfg: FfmpegArgConfig): string[] {
     'avfoundation',
     '-framerate',
     String(cfg.fps),
+    // uyvy422 is AVFoundation's native YUV format for screen capture (~2 bytes/px vs 4 for bgr0),
+    // cutting memory bandwidth in half and removing the BGR→YUV conversion step.
+    '-pixel_format',
+    'uyvy422',
     '-i',
     deviceArg,
 
     // Encoder: VideoToolbox hardware H.264
     '-vcodec',
     'h264_videotoolbox',
+    // Drop frames when encoder falls behind rather than queuing them.
+    // Without this flag, VideoToolbox accumulates a backlog during high-load transitions
+    // (e.g. solo shuffle round changes) and the output FPS collapses to 10-12.
+    '-realtime',
+    'true',
+    '-pix_fmt',
+    'yuv420p',
     '-b:v',
     `${cfg.bitrate}k`,
     '-r',
     String(cfg.fps),
+    // Keyframe every 5 seconds. Forcing one every 1s (= fps) was 5× more expensive
+    // on the encoder and contributed to thermal/CPU debt in long sessions.
     '-g',
-    String(cfg.fps),
-    '-keyint_min',
-    String(cfg.fps),
+    String(cfg.fps * 5),
   ]
 
-  // Optional resolution scaling
   if (cfg.resolution) {
     const [w, h] = cfg.resolution.split('x')
     args.push('-vf', `scale=${w}:${h}`)
   }
 
-  // Audio encoding when a device is selected
   if (cfg.audioDevice !== null) {
     args.push('-acodec', 'aac', '-b:a', '128k')
   }
+
+  args.push('-y', cfg.outputPath)
+  return args
+}
+
+function buildWindowsArgs(cfg: FfmpegArgConfig): string[] {
+  const args = [
+    '-f',
+    'gdigrab',
+    '-framerate',
+    String(cfg.fps),
+    '-i',
+    'desktop',
+    '-vcodec',
+    cfg.encoder,
+    '-pix_fmt',
+    'yuv420p',
+    '-b:v',
+    `${cfg.bitrate}k`,
+    '-r',
+    String(cfg.fps),
+    '-g',
+    String(cfg.fps * 5),
+  ]
+
+  // libx264 (CPU fallback) needs explicit realtime presets; HW encoders are fast by default.
+  if (cfg.encoder === 'libx264') {
+    args.push('-preset', 'ultrafast', '-tune', 'zerolatency')
+  }
+
+  if (cfg.resolution) {
+    const [w, h] = cfg.resolution.split('x')
+    args.push('-vf', `scale=${w}:${h}`)
+  }
+
+  // Audio capture on Windows requires DirectShow device configuration — not supported yet.
 
   args.push('-y', cfg.outputPath)
   return args

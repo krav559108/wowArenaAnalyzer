@@ -7,6 +7,7 @@ import type { Recording } from '@shared/ipc.types'
 const props = defineProps<{
   recordings: Recording[]
   onDelete: (id: string) => void
+  onDeleteGroup: (ids: string[]) => void
   onOpenFolder: (id: string) => void
 }>()
 
@@ -22,6 +23,11 @@ function select(id: string): void {
 function handleDelete(e: MouseEvent, id: string): void {
   e.stopPropagation()
   props.onDelete(id)
+}
+
+function handleDeleteGroup(e: MouseEvent, group: SoloShuffleGroup): void {
+  e.stopPropagation()
+  props.onDeleteGroup(group.recordings.map((r) => r.id))
 }
 
 function handleOpenFolder(e: MouseEvent, id: string): void {
@@ -147,7 +153,7 @@ function isRecording(item: ListItem): item is Recording {
         <!-- Solo Shuffle Group header -->
         <li
           v-if="!isRecording(item)"
-          class="border-b border-zinc-800/60"
+          class="group/group border-b border-zinc-800/60 relative"
         >
           <!-- Group header row -->
           <button
@@ -189,6 +195,17 @@ function isRecording(item: ListItem): item is Recording {
                 Solo Shuffle · {{ item.recordings.length }} rounds
               </p>
             </div>
+          </button>
+
+          <!-- Group delete button (visible on hover) -->
+          <button
+            class="absolute top-2 right-2 hidden group-hover/group:flex p-1 rounded bg-zinc-900/90 hover:bg-red-900/70 text-zinc-400 hover:text-red-400 transition-colors"
+            title="Delete all rounds"
+            @click="handleDeleteGroup($event, item)"
+          >
+            <svg class="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M6 2h4v1h3v1H3V3h3V2zM4 5h8l-.8 9H4.8L4 5zm2 2v5h1V7H6zm3 0v5h1V7H9z" />
+            </svg>
           </button>
 
           <!-- Expanded rounds -->

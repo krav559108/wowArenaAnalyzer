@@ -6,6 +6,7 @@ const emit = defineEmits<{ complete: [] }>()
 
 const {
   step,
+  platform,
   wowPath,
   wowPathState,
   permissionStatus,
@@ -16,6 +17,7 @@ const {
   ffmpegPath,
   showFfmpegSection,
   canAdvance,
+  init,
   detectWowPath,
   pickWowFolder,
   checkScreenPermission,
@@ -31,6 +33,7 @@ const {
 const TOTAL_STEPS = 5
 
 onMounted(async () => {
+  await init()
   await detectWowPath()
 })
 

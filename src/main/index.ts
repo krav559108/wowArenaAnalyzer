@@ -30,7 +30,9 @@ import {
 // App config — electron-store with typed defaults
 // ---------------------------------------------------------------------------
 
-const DEFAULT_WOW_PATH = '/Applications/World of Warcraft'
+const DEFAULT_WOW_PATH = process.platform === 'win32'
+  ? 'C:\\Program Files (x86)\\World of Warcraft'
+  : '/Applications/World of Warcraft'
 
 const configStore = new Store<AppConfig>({
   defaults: {

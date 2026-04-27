@@ -192,6 +192,7 @@ export interface IpcCommands {
   'system:pickLogFile': { params: void; result: { path: string | null } }
   'system:openUrl': { params: { url: string }; result: void }
   'system:relaunch': { params: void; result: void }
+  'system:getPlatform': { params: void; result: { platform: string } }
 }
 
 // ---------------------------------------------------------------------------

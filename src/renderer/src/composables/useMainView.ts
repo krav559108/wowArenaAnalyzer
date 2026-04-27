@@ -25,6 +25,11 @@ export function useMainView() {
     recordingsStore.remove(id)
   }
 
+  async function deleteGroup(ids: string[]): Promise<void> {
+    await Promise.all(ids.map((id) => window.electron.invoke('storage:deleteRecording', { id })))
+    for (const id of ids) recordingsStore.remove(id)
+  }
+
   async function openFolder(id: string): Promise<void> {
     await window.electron.invoke('storage:openFolder', { id })
   }
@@ -65,5 +70,5 @@ export function useMainView() {
     for (const unsub of unsubs) unsub()
   })
 
-  return { deleteRecording, openFolder }
+  return { deleteRecording, deleteGroup, openFolder }
 }

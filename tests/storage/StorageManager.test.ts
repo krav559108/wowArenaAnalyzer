@@ -100,9 +100,9 @@ describe('buildDirName', () => {
     expect(buildDirName(event)).toBe('2026-04-15_NagrandArena_3v3_LOSS')
   })
 
-  it('formats a Solo Shuffle directory name without round number', () => {
+  it('formats a Solo Shuffle directory name with round number', () => {
     const name = buildDirName(EVENT_SS_R3)
-    expect(name).toBe('2026-04-15_TigersPeak_SoloShuffle_LOSS')
+    expect(name).toBe('2026-04-15_TigersPeak_SoloShuffle_R3_LOSS')
   })
 
   it('strips non-alphanumeric characters from zone name', () => {
@@ -328,6 +328,40 @@ describe('StorageManager.processRecording', () => {
 
     // Recording id matches expected dir name
     expect(recording.id).toBe('2026-04-15_NagrandArena_2v2_WIN')
+  })
+
+  it('keeps raw file until all rounds processed, then deletes it', async () => {
+    const rawPath = join(tmpDir, 'raw_ss.mp4')
+    await fs.writeFile(rawPath, 'fake video data')
+
+    const mockRunner = vi.fn(async (_ffmpegPath: string, args: string[]) => {
+      const output = args[args.length - 1]
+      if (output !== undefined) await fs.writeFile(output, 'fake output')
+    })
+
+    const manager = new StorageManager(tmpDir, mockRunner)
+
+    // Process rounds 1 and 2 of a 3-round session sharing the same raw file
+    await manager.processRecording(
+      { ...EVENT_SS_R3, rawPath, roundNumber: 1, totalRoundsInSession: 3 },
+      '/usr/local/bin/ffmpeg'
+    )
+    // Raw file still exists after round 1
+    await expect(fs.access(rawPath)).resolves.toBeUndefined()
+
+    await manager.processRecording(
+      { ...EVENT_SS_R3, rawPath, roundNumber: 2, totalRoundsInSession: 3 },
+      '/usr/local/bin/ffmpeg'
+    )
+    // Raw file still exists after round 2
+    await expect(fs.access(rawPath)).resolves.toBeUndefined()
+
+    await manager.processRecording(
+      { ...EVENT_SS_R3, rawPath, roundNumber: 3, totalRoundsInSession: 3 },
+      '/usr/local/bin/ffmpeg'
+    )
+    // Raw file deleted after last round
+    await expect(fs.access(rawPath)).rejects.toThrow()
   })
 
   it('uses offset 0 when matchStartedAt is before recordingStartedAt', async () => {

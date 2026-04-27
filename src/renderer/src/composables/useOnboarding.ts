@@ -25,6 +25,9 @@ export function useOnboarding() {
   // Current wizard step
   const step = ref(0)
 
+  // Platform — loaded once via IPC; defaults to 'darwin' until resolved
+  const platform = ref('darwin')
+
   // Step 0 — WoW folder
   const wowPath = ref('')
   const wowPathState = ref<CheckState>('idle')
@@ -41,8 +44,8 @@ export function useOnboarding() {
   const ffmpegState = ref<CheckState>('idle')
   const ffmpegPath = ref<string | null>(null)
 
-  // Step 3 sub-steps: only show ffmpeg section after brew is confirmed
-  const showFfmpegSection = computed(() => brewState.value === 'ok')
+  // Step 3 sub-steps: on Windows skip brew (not applicable), show FFmpeg section immediately
+  const showFfmpegSection = computed(() => platform.value === 'win32' || brewState.value === 'ok')
 
   // Whether the current step allows advancing
   const canAdvance = computed(() => {
@@ -68,13 +71,13 @@ export function useOnboarding() {
   // -------------------------------------------------------------------------
 
   async function detectWowPath(): Promise<void> {
-    const DEFAULT_PATH = '/Applications/World of Warcraft'
+    const defaultPath = platform.value === 'win32'
+      ? 'C:\\Program Files (x86)\\World of Warcraft'
+      : '/Applications/World of Warcraft'
     wowPathState.value = 'checking'
-    const result = await window.electron.invoke('system:checkWowPath', {
-      path: DEFAULT_PATH
-    })
+    const result = await window.electron.invoke('system:checkWowPath', { path: defaultPath })
     if (result.valid) {
-      wowPath.value = DEFAULT_PATH
+      wowPath.value = defaultPath
       wowPathState.value = 'ok'
     } else {
       wowPath.value = ''
@@ -169,9 +172,12 @@ export function useOnboarding() {
   async function runStepChecks(): Promise<void> {
     switch (step.value) {
       case 1:
-        // Request permission first — this triggers the macOS prompt and registers
-        // the app in System Settings → Screen Recording (if not-determined).
-        // Then fall through to a plain status check on subsequent visits.
+        if (platform.value === 'win32') {
+          // No screen recording permission model on Windows — auto-pass this step.
+          permissionStatus.value = 'granted'
+          break
+        }
+        // macOS: trigger the permission prompt (registers the app in System Settings).
         permissionChecking.value = true
         try {
           const result = await window.electron.invoke('system:requestScreenPermission')
@@ -184,12 +190,27 @@ export function useOnboarding() {
         if (addonState.value === 'idle') await checkAddon()
         break
       case 3:
-        await checkBrew()
-        if (brewState.value === 'ok') await checkFfmpeg()
+        if (platform.value === 'win32') {
+          // Homebrew doesn't exist on Windows — skip brew and check FFmpeg directly.
+          brewState.value = 'ok'
+          await checkFfmpeg()
+        } else {
+          await checkBrew()
+          if (brewState.value === 'ok') await checkFfmpeg()
+        }
         break
       default:
         break
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Init — must be called once on mount to resolve platform before any checks
+  // -------------------------------------------------------------------------
+
+  async function init(): Promise<void> {
+    const result = await window.electron.invoke('system:getPlatform')
+    platform.value = result.platform
   }
 
   // -------------------------------------------------------------------------
@@ -204,6 +225,7 @@ export function useOnboarding() {
   return {
     // State
     step,
+    platform,
     wowPath,
     wowPathState,
     permissionStatus,
@@ -215,6 +237,7 @@ export function useOnboarding() {
     showFfmpegSection,
     canAdvance,
     // Actions
+    init,
     detectWowPath,
     pickWowFolder,
     checkScreenPermission,

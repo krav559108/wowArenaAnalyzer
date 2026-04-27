@@ -62,6 +62,9 @@ export const defaultFfmpegRunner: FfmpegRunner = (
 export class StorageManager {
   private readonly storagePath: string
   private readonly runner: FfmpegRunner
+  // Tracks how many rounds still need to be processed for each raw file path.
+  // The raw file is deleted only when all rounds sharing it have been processed.
+  private readonly rawProcessingCounts = new Map<string, number>()
 
   constructor(storagePath: string, runner: FfmpegRunner = defaultFfmpegRunner) {
     this.storagePath = storagePath
@@ -105,8 +108,20 @@ export class StorageManager {
     const metadata = buildMetadata(event, timeline)
     await writeMetadata(dirPath, metadata)
 
-    // Remove the raw file only after all other steps succeed
-    await fs.unlink(event.rawPath)
+    // For multi-round sessions (solo shuffle), all rounds share the same raw file.
+    // Delete it only after the last round has been processed.
+    const totalRounds = event.totalRoundsInSession ?? 1
+    if (totalRounds > 1) {
+      const remaining = (this.rawProcessingCounts.get(event.rawPath) ?? totalRounds) - 1
+      if (remaining <= 0) {
+        this.rawProcessingCounts.delete(event.rawPath)
+        await fs.unlink(event.rawPath)
+      } else {
+        this.rawProcessingCounts.set(event.rawPath, remaining)
+      }
+    } else {
+      await fs.unlink(event.rawPath)
+    }
 
     return {
       id: dirName,
@@ -236,7 +251,7 @@ export function buildDirName(event: ProcessingRequiredEvent): string {
 
   let bracketPart: string
   if (event.bracket === 'solo-shuffle') {
-    bracketPart = 'SoloShuffle'
+    bracketPart = `SoloShuffle_R${event.roundNumber ?? 1}`
   } else {
     bracketPart = event.bracket
   }

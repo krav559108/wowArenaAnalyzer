@@ -257,6 +257,8 @@ export interface UnitDiedEvent {
   // Raw WoW unit flags for the unit that died. Use UNIT_FLAG_REACTION_HOSTILE (0x40)
   // to determine whether the death was a player-team death or an enemy death.
   destFlags: number
+  // true = feign death / battle-res / ankh; unit did not actually die. Ignore for round result tracking.
+  unconscious?: boolean
   timestamp: Date
 }
 
@@ -799,11 +801,13 @@ export class CombatLogParser extends EventEmitter {
     if (unitGuid === undefined || unitName === undefined) return
 
     const destFlags = parseHexFlags(fields[UNIT_DIED_FIELD_DEST_FLAGS] ?? '0')
+    const unconscious = fields[8] === '1'
 
     this.emit('unitDied', {
       unitGuid,
       unitName,
       destFlags,
+      unconscious,
       timestamp
     })
   }

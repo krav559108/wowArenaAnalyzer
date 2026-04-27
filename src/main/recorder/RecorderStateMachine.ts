@@ -78,6 +78,9 @@ export interface ProcessingRequiredEvent {
   // Solo Shuffle only
   roundNumber?: number
   sessionId?: string
+  // For multi-round sessions: how many processingRequired events share this rawPath.
+  // StorageManager deletes the raw file only after all rounds have been processed.
+  totalRoundsInSession?: number
 }
 
 export interface StateMachineEventMap {
@@ -114,6 +117,22 @@ interface DamageHit {
 interface DmgSample {
   sec: number
   total: number
+}
+
+// Snapshot of one completed round's data, accumulated before the round is finalized.
+interface CompletedRoundData {
+  roundNumber: number
+  matchStartedAt: Date
+  durationSecs: number
+  result: ArenaResult
+  timeline: TimelineEvent[]
+  knownSpecs: Record<string, string>
+  healerNames: string[]
+  playerRatings: Record<string, number>
+  teamDmgBySecond: number[]
+  enemyDmgBySecond: number[]
+  teamHealBySecond: number[]
+  enemyHealBySecond: number[]
 }
 
 interface SessionContext {
@@ -174,6 +193,12 @@ interface SessionContext {
   enemyDmgSamples: DmgSample[]
   teamHealSamples: DmgSample[]
   enemyHealSamples: DmgSample[]
+
+  // --- Solo Shuffle per-round accumulation ---
+  // Real (non-unconscious) player deaths in the current round, used to derive round result.
+  currentRoundRealDeaths: Array<{ isEnemy: boolean }>
+  // Finalized per-round data; populated as each new ARENA_MATCH_START fires.
+  completedRounds: CompletedRoundData[]
 }
 
 // ---------------------------------------------------------------------------
@@ -321,7 +346,9 @@ export class RecorderStateMachine extends EventEmitter {
       teamDmgAccum: 0, enemyDmgAccum: 0,
       teamHealAccum: 0, enemyHealAccum: 0,
       teamDmgSamples: [], enemyDmgSamples: [],
-      teamHealSamples: [], enemyHealSamples: []
+      teamHealSamples: [], enemyHealSamples: [],
+      currentRoundRealDeaths: [],
+      completedRounds: []
     }
 
     this.transitionTo('waiting', e.zoneName)
@@ -381,10 +408,39 @@ export class RecorderStateMachine extends EventEmitter {
         teamDmgAccum: 0, enemyDmgAccum: 0,
         teamHealAccum: 0, enemyHealAccum: 0,
         teamDmgSamples: [], enemyDmgSamples: [],
-        teamHealSamples: [], enemyHealSamples: []
+        teamHealSamples: [], enemyHealSamples: [],
+        currentRoundRealDeaths: [],
+        completedRounds: []
       }
       this.transitionTo('waiting', e.zoneName)
       void this.startRecorder()
+    }
+
+    // Solo shuffle rounds 2-6: stay recording, finalize previous round and reset per-round state.
+    if (this.status === 'recording' && this.session !== null && this.session.isSoloShuffle) {
+      if (this.session.soloShuffleTimeoutId !== null) {
+        clearTimeout(this.session.soloShuffleTimeoutId)
+        this.session.soloShuffleTimeoutId = null
+      }
+      this.finalizeCurrentRound(e.timestamp)
+      this.session.roundNumber++
+      this.session.localTeam = e.localTeam
+      this.session.matchStartedAt = e.timestamp
+      this.session.pendingTimeline = []
+      this.session.currentRoundRealDeaths = []
+      this.session.playerCooldowns = new Map()
+      this.session.activeCCs = new Map()
+      this.session.drCounters = new Map()
+      this.session.recentDamageByGuid = new Map()
+      this.session.recentHealthByGuid = new Map()
+      this.session.pendingInterruptByCaster = new Map()
+      this.session.pendingInterruptByTarget = new Map()
+      this.session.teamDmgAccum = 0; this.session.enemyDmgAccum = 0
+      this.session.teamHealAccum = 0; this.session.enemyHealAccum = 0
+      this.session.teamDmgSamples = []; this.session.enemyDmgSamples = []
+      this.session.teamHealSamples = []; this.session.enemyHealSamples = []
+      console.warn(`[StateMachine] Solo shuffle round ${this.session.roundNumber} started`)
+      return
     }
 
     if (this.status !== 'waiting' || this.session === null) return
@@ -421,7 +477,7 @@ export class RecorderStateMachine extends EventEmitter {
     )
   }
 
-  private onMatchEnd(result: ArenaResult, durationSecs: number): void {
+  private onMatchEnd(result: ArenaResult, durationSecs: number, matchEndTimestamp: Date): void {
     if (this.status !== 'recording' || this.session === null) return
 
     // Cancel any pending solo-shuffle timeout — we got the match end event
@@ -448,10 +504,20 @@ export class RecorderStateMachine extends EventEmitter {
       return
     }
 
+    // For solo shuffle: finalize the last round, then snapshot all per-round data before
+    // stopping the recorder (session context is cleared after stop).
+    let completedRounds: CompletedRoundData[] = []
+    if (isSoloShuffle) {
+      this.finalizeCurrentRound(matchEndTimestamp)
+      completedRounds = [...this.session.completedRounds]
+    }
+
     const timeline = [...this.session.pendingTimeline]
     const knownSpecs = Object.fromEntries(this.session.knownSpecs)
     const healerNames = [...this.session.healerNames.keys()]
     const playerRatings = Object.fromEntries(this.session.playerRatings)
+    // For non-shuffle, use the parser-supplied durationSecs (correct for 2v2/3v3).
+    // For solo shuffle, per-round durations are computed from timestamps in finalizeCurrentRound.
     const teamDmgBySecond = buildChartBySecond(this.session.teamDmgSamples, durationSecs)
     const enemyDmgBySecond = buildChartBySecond(this.session.enemyDmgSamples, durationSecs)
     const teamHealBySecond = buildChartBySecond(this.session.teamHealSamples, durationSecs)
@@ -468,26 +534,56 @@ export class RecorderStateMachine extends EventEmitter {
 
     void stopPromise
       .then((finalPath) => {
-        this.emit('processingRequired', {
-          rawPath: finalPath,
-          zoneName,
-          bracket,
-          result,
-          durationSecs,
-          matchStartedAt,
-          recordingStartedAt,
-          timeline,
-          knownSpecs,
-          healerNames,
-          playerRatings,
-          teamDmgBySecond,
-          enemyDmgBySecond,
-          teamHealBySecond,
-          enemyHealBySecond,
-          ratingBefore,
-          ratingAfter,
-          sessionId: isSoloShuffle ? sessionId : undefined
-        })
+        if (isSoloShuffle && completedRounds.length > 0) {
+          // Emit one processingRequired per round, sharing the same raw file.
+          // StorageManager deletes the raw file only after all rounds have been processed.
+          const totalRounds = completedRounds.length
+          for (const round of completedRounds) {
+            this.emit('processingRequired', {
+              rawPath: finalPath,
+              zoneName,
+              bracket,
+              result: round.result,
+              durationSecs: round.durationSecs,
+              matchStartedAt: round.matchStartedAt,
+              recordingStartedAt,
+              timeline: round.timeline,
+              knownSpecs: round.knownSpecs,
+              healerNames: round.healerNames,
+              playerRatings: round.playerRatings,
+              teamDmgBySecond: round.teamDmgBySecond,
+              enemyDmgBySecond: round.enemyDmgBySecond,
+              teamHealBySecond: round.teamHealBySecond,
+              enemyHealBySecond: round.enemyHealBySecond,
+              ratingBefore,
+              ratingAfter,
+              roundNumber: round.roundNumber,
+              sessionId,
+              totalRoundsInSession: totalRounds
+            })
+          }
+        } else {
+          this.emit('processingRequired', {
+            rawPath: finalPath,
+            zoneName,
+            bracket,
+            result,
+            durationSecs,
+            matchStartedAt,
+            recordingStartedAt,
+            timeline,
+            knownSpecs,
+            healerNames,
+            playerRatings,
+            teamDmgBySecond,
+            enemyDmgBySecond,
+            teamHealBySecond,
+            enemyHealBySecond,
+            ratingBefore,
+            ratingAfter,
+            sessionId: isSoloShuffle ? sessionId : undefined
+          })
+        }
 
         this.session = null
         this.transitionTo('idle')
@@ -498,6 +594,34 @@ export class RecorderStateMachine extends EventEmitter {
         this.transitionTo('error')
         this.emit('error', { message: `Failed to stop recording: ${err.message}` })
       })
+  }
+
+  // Snapshots the current round's data into completedRounds.
+  // Called with the timestamp of the NEXT round's ARENA_MATCH_START (rounds 1–5)
+  // or the ARENA_MATCH_END timestamp (round 6 / final round).
+  private finalizeCurrentRound(endTimestamp: Date): void {
+    if (this.session === null || this.session.matchStartedAt === null) return
+
+    const durationSecs = Math.max(
+      0,
+      (endTimestamp.getTime() - this.session.matchStartedAt.getTime()) / 1000
+    )
+    const result = computeRoundResult(this.session.currentRoundRealDeaths)
+
+    this.session.completedRounds.push({
+      roundNumber: this.session.roundNumber,
+      matchStartedAt: this.session.matchStartedAt,
+      durationSecs,
+      result,
+      timeline: [...this.session.pendingTimeline],
+      knownSpecs: Object.fromEntries(this.session.knownSpecs),
+      healerNames: [...this.session.healerNames.keys()],
+      playerRatings: Object.fromEntries(this.session.playerRatings),
+      teamDmgBySecond: buildChartBySecond(this.session.teamDmgSamples, durationSecs),
+      enemyDmgBySecond: buildChartBySecond(this.session.enemyDmgSamples, durationSecs),
+      teamHealBySecond: buildChartBySecond(this.session.teamHealSamples, durationSecs),
+      enemyHealBySecond: buildChartBySecond(this.session.enemyHealSamples, durationSecs)
+    })
   }
 
   // ---------------------------------------------------------------------------
@@ -776,6 +900,12 @@ export class RecorderStateMachine extends EventEmitter {
     const relSecs = (e.timestamp.getTime() - this.session.matchStartedAt.getTime()) / 1000
     const isEnemy = (e.destFlags & UNIT_FLAG_REACTION_HOSTILE) !== 0
 
+    // Track real (non-unconscious) deaths for solo shuffle round result computation.
+    // unconscious=true means Feign Death, Ankh, etc. — unit didn't actually die.
+    if (this.session.isSoloShuffle && !e.unconscious) {
+      this.session.currentRoundRealDeaths.push({ isEnemy })
+    }
+
     // "Could use" only for the local player (identified by addon fullName).
     const isLocalPlayer =
       this.localPlayerName !== null &&
@@ -969,6 +1099,14 @@ export class RecorderStateMachine extends EventEmitter {
 // ---------------------------------------------------------------------------
 // Utility
 // ---------------------------------------------------------------------------
+
+// Determines the round result for solo shuffle from real (non-unconscious) deaths.
+// A round is a WIN if more enemies died than friendlies; LOSS otherwise.
+function computeRoundResult(realDeaths: Array<{ isEnemy: boolean }>): ArenaResult {
+  const enemyDeaths = realDeaths.filter((d) => d.isEnemy).length
+  const friendlyDeaths = realDeaths.filter((d) => !d.isEnemy).length
+  return enemyDeaths > friendlyDeaths ? 'WIN' : 'LOSS'
+}
 
 // Returns the names of defensive abilities that were available (off cooldown) at the
 // moment of death. Used to populate TimelineEvent.unusedDefensives for death events.
