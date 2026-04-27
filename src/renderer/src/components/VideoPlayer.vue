@@ -300,22 +300,6 @@ function fmtK(n: number): string {
   return String(n)
 }
 
-const dmgTeamPath = computed(() => {
-  const d = props.recording.metadata.teamDmgBySecond
-  return d ? buildSvgPath(d, 560, 80) : ''
-})
-const dmgEnemyPath = computed(() => {
-  const d = props.recording.metadata.enemyDmgBySecond
-  return d ? buildSvgPath(d, 560, 80) : ''
-})
-const healTeamPath = computed(() => {
-  const d = props.recording.metadata.teamHealBySecond
-  return d ? buildSvgPath(d, 560, 80) : ''
-})
-const healEnemyPath = computed(() => {
-  const d = props.recording.metadata.enemyHealBySecond
-  return d ? buildSvgPath(d, 560, 80) : ''
-})
 
 const dmgMaxVal = computed(() => {
   const t = props.recording.metadata.teamDmgBySecond ?? []
@@ -528,7 +512,10 @@ function playerRating(name: string): number | undefined {
               :style="{ color: playerColor(name) }"
               @click="openPlayer(name)"
             >
-              {{ name }}<span v-if="playerSpec(name)" class="text-zinc-500"> ({{ playerSpec(name) }})</span>
+              {{ name }}<span
+                v-if="playerSpec(name)"
+                class="text-zinc-500"
+              > ({{ playerSpec(name) }})</span>
             </button>
             <span
               v-if="playerRating(name) !== undefined"
@@ -564,7 +551,10 @@ function playerRating(name: string): number | undefined {
               :style="{ color: playerColor(name) }"
               @click="openPlayer(name)"
             >
-              {{ name }}<span v-if="playerSpec(name)" class="text-zinc-500"> ({{ playerSpec(name) }})</span>
+              {{ name }}<span
+                v-if="playerSpec(name)"
+                class="text-zinc-500"
+              > ({{ playerSpec(name) }})</span>
             </button>
             <span
               v-if="playerRating(name) !== undefined"
@@ -778,7 +768,10 @@ function playerRating(name: string): number | undefined {
                 class="flex items-center gap-1.5 text-[10px] text-zinc-400"
               >
                 <span class="tabular-nums text-zinc-600 w-8 flex-shrink-0">{{ hit.relSecs.toFixed(1) }}s</span>
-                <span v-if="hit.hpPct !== undefined" class="tabular-nums text-zinc-500 flex-shrink-0">({{ hit.hpPct }}%)</span>
+                <span
+                  v-if="hit.hpPct !== undefined"
+                  class="tabular-nums text-zinc-500 flex-shrink-0"
+                >({{ hit.hpPct }}%)</span>
                 <span class="truncate">{{ hit.spellName }}</span>
                 <span class="ml-auto text-red-400 tabular-nums flex-shrink-0">{{ hit.amount.toLocaleString() }}</span>
               </div>

@@ -144,7 +144,10 @@ const playerColorMap = computed(() => {
     >
       <!-- Team Gold (team 0) -->
       <div class="bg-zinc-900 rounded-lg p-3">
-        <p class="text-xs font-semibold uppercase tracking-wider mb-2" style="color: #f0b429;">
+        <p
+          class="text-xs font-semibold uppercase tracking-wider mb-2"
+          style="color: #f0b429;"
+        >
           Team Gold
         </p>
         <div
@@ -176,7 +179,10 @@ const playerColorMap = computed(() => {
 
       <!-- Team Purple (team 1) -->
       <div class="bg-zinc-900 rounded-lg p-3">
-        <p class="text-xs font-semibold uppercase tracking-wider mb-2" style="color: #a855f7;">
+        <p
+          class="text-xs font-semibold uppercase tracking-wider mb-2"
+          style="color: #a855f7;"
+        >
           Team Purple
         </p>
         <div

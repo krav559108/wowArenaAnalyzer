@@ -98,13 +98,6 @@ const matchEnd = {
   timestamp: new Date('2026-04-15T20:02:15Z')
 }
 
-const matchEndRound = {
-  result: 'WIN' as const,
-  durationSecs: 90,
-  roundNumber: 1,
-  timestamp: new Date('2026-04-15T20:01:45Z')
-}
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

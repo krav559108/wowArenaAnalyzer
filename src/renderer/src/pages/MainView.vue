@@ -216,7 +216,6 @@ const statusTextClass = computed(() => {
             :class="activeTab === tab.key ? 'bg-zinc-600 text-zinc-300' : 'bg-zinc-800 text-zinc-600'"
           >{{ bracketCount(tab.key) }}</span>
         </button>
-
       </div>
 
       <!-- Tab content (offset for tab bar height ~33px) -->

@@ -6,7 +6,6 @@ const emit = defineEmits<{ complete: [] }>()
 
 const {
   step,
-  platform,
   wowPath,
   wowPathState,
   permissionStatus,

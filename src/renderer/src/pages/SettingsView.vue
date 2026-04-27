@@ -340,7 +340,9 @@ const BITRATE_PRESETS = [
             <button
               class="text-blue-400 hover:text-blue-300 underline"
               @click="() => window.electron.invoke('system:openUrl', { url: 'https://existential.audio/blackhole/' })"
-            >BlackHole</button>
+            >
+              BlackHole
+            </button>
             (free), then in WoW Sound settings set output to BlackHole and select it below.
           </p>
           <div class="space-y-1.5">
@@ -399,8 +401,8 @@ const BITRATE_PRESETS = [
         >
           {{
             addonInstallStatus === 'installing' ? 'Installing…'
-            : addonInstallStatus === 'done' ? 'Installed ✓'
-            : 'Install Addon'
+              : addonInstallStatus === 'done' ? 'Installed ✓'
+              : 'Install Addon'
           }}
         </button>
         <p

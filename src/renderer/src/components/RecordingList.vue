@@ -166,7 +166,10 @@ function isRecording(item: ListItem): item is Recording {
             </span>
 
             <!-- Thumbnail placeholder -->
-            <div class="w-16 flex-shrink-0 bg-zinc-900 rounded overflow-hidden" style="aspect-ratio: 16/9">
+            <div
+              class="w-16 flex-shrink-0 bg-zinc-900 rounded overflow-hidden"
+              style="aspect-ratio: 16/9"
+            >
               <img
                 v-if="item.recordings[0]?.thumbnailPath"
                 :src="'file://' + item.recordings[0].thumbnailPath"
@@ -203,7 +206,11 @@ function isRecording(item: ListItem): item is Recording {
             title="Delete all rounds"
             @click="handleDeleteGroup($event, item)"
           >
-            <svg class="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
+            <svg
+              class="w-3 h-3"
+              viewBox="0 0 16 16"
+              fill="currentColor"
+            >
               <path d="M6 2h4v1h3v1H3V3h3V2zM4 5h8l-.8 9H4.8L4 5zm2 2v5h1V7H6zm3 0v5h1V7H9z" />
             </svg>
           </button>
@@ -244,7 +251,11 @@ function isRecording(item: ListItem): item is Recording {
                   title="Show in Finder"
                   @click="handleOpenFolder($event, rec.id)"
                 >
-                  <svg class="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
+                  <svg
+                    class="w-3 h-3"
+                    viewBox="0 0 16 16"
+                    fill="currentColor"
+                  >
                     <path d="M2 2h5v2H4v8h8V9h2v5H2V2z" />
                     <path d="M9 2h5v5h-2V4.414L7.707 8.707 6.293 7.293 10.586 3H9V2z" />
                   </svg>
@@ -254,7 +265,11 @@ function isRecording(item: ListItem): item is Recording {
                   title="Delete recording"
                   @click="handleDelete($event, rec.id)"
                 >
-                  <svg class="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
+                  <svg
+                    class="w-3 h-3"
+                    viewBox="0 0 16 16"
+                    fill="currentColor"
+                  >
                     <path d="M6 2h4v1h3v1H3V3h3V2zM4 5h8l-.8 9H4.8L4 5zm2 2v5h1V7H6zm3 0v5h1V7H9z" />
                   </svg>
                 </button>
@@ -349,7 +364,11 @@ function isRecording(item: ListItem): item is Recording {
               title="Show in Finder"
               @click="handleOpenFolder($event, item.id)"
             >
-              <svg class="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
+              <svg
+                class="w-3 h-3"
+                viewBox="0 0 16 16"
+                fill="currentColor"
+              >
                 <path d="M2 2h5v2H4v8h8V9h2v5H2V2z" />
                 <path d="M9 2h5v5h-2V4.414L7.707 8.707 6.293 7.293 10.586 3H9V2z" />
               </svg>
@@ -359,7 +378,11 @@ function isRecording(item: ListItem): item is Recording {
               title="Delete recording"
               @click="handleDelete($event, item.id)"
             >
-              <svg class="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
+              <svg
+                class="w-3 h-3"
+                viewBox="0 0 16 16"
+                fill="currentColor"
+              >
                 <path d="M6 2h4v1h3v1H3V3h3V2zM4 5h8l-.8 9H4.8L4 5zm2 2v5h1V7H6zm3 0v5h1V7H9z" />
               </svg>
             </button>

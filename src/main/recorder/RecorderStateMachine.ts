@@ -906,11 +906,6 @@ export class RecorderStateMachine extends EventEmitter {
       this.session.currentRoundRealDeaths.push({ isEnemy })
     }
 
-    // "Could use" only for the local player (identified by addon fullName).
-    const isLocalPlayer =
-      this.localPlayerName !== null &&
-      e.unitName.toLowerCase() === this.localPlayerName.toLowerCase()
-
     // If class not inferred from spells yet, derive from COMBATANT_INFO spec
     if (!this.playerClassInferred.has(e.unitName)) {
       const spec = this.session.knownSpecs.get(e.unitName)
