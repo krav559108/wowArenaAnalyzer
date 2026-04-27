@@ -11,6 +11,12 @@ files:
   - out/**/*
   - "!**/*.map"
 
+extraResources:
+  - from: addon
+    to: addon
+
+afterSign: build/afterSign.js
+
 # ---------------------------------------------------------------------------
 # macOS
 # ---------------------------------------------------------------------------
@@ -22,7 +28,7 @@ mac:
         - universal   # fat binary: arm64 + x64 in one .app
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-  hardenedRuntime: true
+  hardenedRuntime: false
   gatekeeperAssess: false
   # null = ad-hoc signing (local dev builds, no Developer ID required).
   # For notarised public distribution, remove this line and set

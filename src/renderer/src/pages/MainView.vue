@@ -60,8 +60,24 @@ async function refreshAddonStatus(): Promise<void> {
   applyAddonStatus(result)
 }
 
+// -------------------------------------------------------------------------
+// Screen recording permission check
+// -------------------------------------------------------------------------
+
+const screenPermission = ref<'granted' | 'denied' | 'not-determined'>('granted')
+
+async function checkScreenPermission(): Promise<void> {
+  const result = await window.electron.invoke('system:checkScreenPermission')
+  screenPermission.value = result.status
+}
+
+async function openSystemPreferences(): Promise<void> {
+  await window.electron.invoke('system:openSystemPreferences')
+}
+
 onMounted(() => {
   void refreshAddonStatus()
+  void checkScreenPermission()
   // Push updates from main process whenever WoW writes SavedVariables
   unsubAddon = window.electron.on('addon:statusChanged', applyAddonStatus)
   // Slow fallback poll in case the file was already current on mount
@@ -263,6 +279,29 @@ const statusTextClass = computed(() => {
             <p class="text-zinc-600 text-xs mt-1 max-w-[260px]">
               Choose a match from the sidebar to watch the replay and review the timeline.
             </p>
+            <div
+              v-if="screenPermission !== 'granted'"
+              class="mt-6 px-4 py-3 rounded-lg bg-red-950/40 border border-red-800/50 text-left max-w-[280px]"
+            >
+              <p class="text-xs font-medium text-red-400 mb-1">Screen recording permission denied</p>
+              <p class="text-xs text-zinc-400 mb-3">
+                Recording won't work until this is granted in macOS System Settings.
+              </p>
+              <div class="flex gap-2">
+                <button
+                  class="text-xs px-3 py-1.5 rounded bg-red-800/50 hover:bg-red-700/50 text-red-200 transition-colors"
+                  @click="openSystemPreferences"
+                >
+                  Open Settings
+                </button>
+                <button
+                  class="text-xs px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors"
+                  @click="checkScreenPermission"
+                >
+                  Re-check
+                </button>
+              </div>
+            </div>
             <template v-if="status === 'idle'">
               <div class="mt-6 px-4 py-3 rounded-lg bg-zinc-900 border border-zinc-800 text-left max-w-[280px]">
                 <p class="text-xs text-zinc-400">

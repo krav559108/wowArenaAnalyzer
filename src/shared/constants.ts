@@ -643,4 +643,4 @@ export const COMBAT_LOG_RELATIVE_PATH = '_retail_/Logs/WoWCombatLog.txt'
 export const DEFAULT_CAPTURE_DEVICE = 'Capture screen 0'
 export const DEFAULT_AUDIO_DEVICE: null = null  // null = no audio; set to AVFoundation audio device index to enable
 export const DEFAULT_VIDEO_RESOLUTION = 'native'
-export const ADDON_RELATIVE_PATH = '_retail_/Interface/AddOns/SimpleCombatLogger'
+export const ADDON_RELATIVE_PATH = '_retail_/Interface/AddOns/ArenaRecorderCompanion'

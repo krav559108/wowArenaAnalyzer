@@ -56,10 +56,19 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
   // Check Screen Recording permission status. On Windows, always granted (no permission model).
   ipcMain.handle(
     'system:checkScreenPermission',
-    (): { status: 'granted' | 'denied' | 'not-determined' } => {
+    async (): Promise<{ status: 'granted' | 'denied' | 'not-determined' }> => {
       if (process.platform === 'win32') return { status: 'granted' }
+      // getMediaAccessStatus('screen') is unreliable on macOS 15 Sequoia — it can
+      // return 'denied' even when the user has granted permission. Use
+      // desktopCapturer.getSources as the authoritative check: if it returns at
+      // least one source the app can actually capture the screen.
+      try {
+        const sources = await desktopCapturer.getSources({ types: ['screen'] })
+        if (sources.length > 0) return { status: 'granted' }
+      } catch {
+        // Falls through to getMediaAccessStatus below
+      }
       const raw = ScreenRecorder.checkScreenPermission()
-      // Map 'restricted' → 'denied' for simplicity in the UI
       const status = raw === 'restricted' ? 'denied' : raw
       return { status }
     }
@@ -71,9 +80,10 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
     async (): Promise<{ status: 'granted' | 'denied' | 'not-determined' }> => {
       if (process.platform === 'win32') return { status: 'granted' }
       try {
-        await desktopCapturer.getSources({ types: ['screen'] })
+        const sources = await desktopCapturer.getSources({ types: ['screen'] })
+        if (sources.length > 0) return { status: 'granted' }
       } catch {
-        // Throws when permission is denied — that's expected; we check status below.
+        // Throws when permission is denied — expected
       }
       const raw = ScreenRecorder.checkScreenPermission()
       const status = raw === 'restricted' ? 'denied' : raw
@@ -188,7 +198,7 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
     'system:installAddon',
     async (_event, { wowPath }: { wowPath: string }): Promise<{ success: boolean; error?: string }> => {
       try {
-        const src = join(app.getAppPath(), 'addon', 'ArenaRecorderCompanion')
+        const src = join(process.resourcesPath, 'addon', 'ArenaRecorderCompanion')
         const dest = join(wowPath, '_retail_', 'Interface', 'AddOns', 'ArenaRecorderCompanion')
         await mkdir(dirname(dest), { recursive: true })
         await cp(src, dest, { recursive: true })

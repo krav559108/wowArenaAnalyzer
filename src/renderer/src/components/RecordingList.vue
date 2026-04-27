@@ -40,6 +40,18 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+function calendarDay(iso: string): string {
+  return iso.slice(0, 10) // 'YYYY-MM-DD'
+}
+
+function dayLabel(day: string): string {
+  const today = calendarDay(new Date().toISOString())
+  const yesterday = calendarDay(new Date(Date.now() - 86_400_000).toISOString())
+  if (day === today) return 'Today'
+  if (day === yesterday) return 'Yesterday'
+  return new Date(day + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60)
   const s = Math.floor(seconds % 60)
@@ -105,6 +117,27 @@ const listItems = computed((): ListItem[] => {
   return items
 })
 
+interface DateGroup {
+  day: string
+  label: string
+  items: ListItem[]
+}
+
+const groupedByDate = computed((): DateGroup[] => {
+  const map = new Map<string, DateGroup>()
+  for (const item of listItems.value) {
+    const iso = 'metadata' in item ? item.metadata.date : item.date
+    const day = calendarDay(iso)
+    let g = map.get(day)
+    if (!g) {
+      g = { day, label: dayLabel(day), items: [] }
+      map.set(day, g)
+    }
+    g.items.push(item)
+  }
+  return Array.from(map.values())
+})
+
 const isEmpty = computed(() => props.recordings.length === 0)
 
 function toggleGroup(sessionId: string): void {
@@ -147,7 +180,16 @@ function isRecording(item: ListItem): item is Recording {
       class="flex-1 overflow-y-auto"
     >
       <template
-        v-for="item in listItems"
+        v-for="group in groupedByDate"
+        :key="group.day"
+      >
+        <!-- Date separator -->
+        <li class="sticky top-0 z-10 px-3 py-1.5 bg-[#0f0f0f]/95 backdrop-blur-sm border-b border-zinc-800/60">
+          <span class="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">{{ group.label }}</span>
+        </li>
+
+      <template
+        v-for="item in group.items"
         :key="isRecording(item) ? item.id : item.sessionId"
       >
         <!-- Solo Shuffle Group header -->
@@ -388,6 +430,7 @@ function isRecording(item: ListItem): item is Recording {
             </button>
           </div>
         </li>
+      </template>
       </template>
     </ul>
   </div>

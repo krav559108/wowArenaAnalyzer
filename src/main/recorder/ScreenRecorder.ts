@@ -58,14 +58,14 @@ export interface RecorderEventMap {
 const DEFAULT_CAPTURE_DEVICE = 'Capture screen 0:none'
 const DEFAULT_BITRATE_KBPS = 8000
 const DEFAULT_FPS = 30
-const DEFAULT_STARTUP_TIMEOUT_MS = 10_000
+const DEFAULT_STARTUP_TIMEOUT_MS = 30_000
 
 // Maximum number of FFmpeg stderr lines kept in memory for error diagnostics.
 const MAX_STDERR_LINES = 200
 
 // FFmpeg prints this line immediately before frame progress begins.
 // Used to confirm that capture has started and to resolve start().
-const FFMPEG_STARTED_RE = /Press \[q\] to stop|Output #0/i
+const FFMPEG_STARTED_RE = /Press \[q\] to stop|Output #0|Stream #0/i
 
 // FFmpeg exits with 255 on SIGINT on some builds (in addition to the normal 0).
 const GRACEFUL_EXIT_CODES = new Set([0, 255])
@@ -232,15 +232,6 @@ export class ScreenRecorder extends EventEmitter {
     }
 
     const ffmpegPath = ScreenRecorder.resolveFfmpegPath()
-    const permission = ScreenRecorder.checkScreenPermission()
-
-    if (permission !== 'granted') {
-      throw new Error(
-        `Screen Recording permission is "${permission}". ` +
-          'Grant access in System Settings > Privacy & Security > Screen Recording, ' +
-          'then restart the app.'
-      )
-    }
 
     const device = options.captureDevice ?? DEFAULT_CAPTURE_DEVICE
     const audioDevice = options.audioDevice ?? null
