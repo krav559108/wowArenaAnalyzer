@@ -32,6 +32,14 @@ Go to the [Releases](../../releases) page and download:
 1. Open the `.dmg` and drag **WoW Arena Recorder** into `/Applications`
 2. On first launch macOS may show "unidentified developer" — right-click the app → Open to bypass this
 
+> ⚠️ **Every time you update the app you must re-grant Screen Recording permission:**
+> 1. Open **System Settings → Privacy & Security → Screen Recording**
+> 2. Find **WoW Arena Recorder** and click the **–** button to remove it
+> 3. Click **+**, navigate to `/Applications`, and add **WoW Arena Recorder** again
+> 4. Relaunch the app
+>
+> This is required because macOS ties the permission to the app's code signature, which changes with every new build.
+
 ### Windows
 1. Run the installer `.exe`
 2. Follow the setup wizard — you can choose the install directory
