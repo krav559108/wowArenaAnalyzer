@@ -38,6 +38,16 @@ Go to the [Releases](../../releases) page and download:
 
 ---
 
+## In-Game Setting (required)
+
+Advanced Combat Logging must be enabled in WoW, otherwise the app won't receive the data it needs.
+
+**Esc → Options → System → Network tab → check "Advanced Combat Logging"**
+
+This setting persists across sessions — you only need to set it once.
+
+---
+
 ## WoW Addon (required)
 
 The app ships with a companion addon called **ArenaRecorderCompanion**. It reads your character's name, class, and spec, and writes them to WoW's SavedVariables so the recorder knows who you are.
