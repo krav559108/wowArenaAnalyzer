@@ -246,7 +246,7 @@ function generateThumbnail(
 // rating is not yet tracked here; it will be added when ARENA_MATCH_STATS
 // parsing is extended to feed data into processRecording.
 export function buildDirName(event: ProcessingRequiredEvent): string {
-  const date = formatDate(event.matchStartedAt)
+  const date = formatDateTime(event.matchStartedAt)
   const zone = event.zoneName.replace(/[^a-zA-Z0-9]/g, '')
 
   let bracketPart: string
@@ -318,9 +318,7 @@ async function fileExists(filePath: string): Promise<boolean> {
   }
 }
 
-function formatDate(date: Date): string {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
+function formatDateTime(date: Date): string {
+  // UTC-based to avoid timezone-dependent directory names; colons replaced for filesystem safety.
+  return date.toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-')
 }

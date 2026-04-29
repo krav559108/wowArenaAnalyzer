@@ -175,6 +175,20 @@ app.whenReady().then(() => {
 
   const { recorder, stateMachine, storageManager } = createPipeline()
 
+  // Keep recorder options in sync with config changes (e.g. screen selection in Settings).
+  const recorderConfigKeys = ['videoBitrate', 'videoFps', 'captureDevice', 'audioDevice', 'videoResolution'] as const
+  for (const key of recorderConfigKeys) {
+    configStore.onDidChange(key, () => {
+      stateMachine.updateRecorderOptions({
+        bitrateKbps: configStore.get('videoBitrate'),
+        fps: configStore.get('videoFps'),
+        captureDevice: configStore.get('captureDevice'),
+        audioDevice: configStore.get('audioDevice'),
+        resolution: configStore.get('videoResolution')
+      })
+    })
+  }
+
   // Register ipcMain.handle commands once — re-registration throws in Electron.
   registerRecorderIpc(stateMachine)
   registerStorageIpc(storageManager)

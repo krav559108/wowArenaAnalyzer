@@ -217,7 +217,7 @@ export class RecorderStateMachine extends EventEmitter {
 
   private readonly watcher: CombatLogWatcher
   private readonly recorder: ScreenRecorder
-  private readonly options: StateMachineOptions
+  private options: StateMachineOptions
 
   constructor(watcher: CombatLogWatcher, recorder: ScreenRecorder, options: StateMachineOptions) {
     super()
@@ -236,6 +236,10 @@ export class RecorderStateMachine extends EventEmitter {
 
   getStatus(): RecorderStatus {
     return this.status
+  }
+
+  updateRecorderOptions(opts: RecorderOptions): void {
+    this.options = { ...this.options, recorder: opts }
   }
 
   // ---------------------------------------------------------------------------

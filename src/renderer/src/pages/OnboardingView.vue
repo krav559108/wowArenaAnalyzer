@@ -11,6 +11,8 @@ const {
   permissionStatus,
   permissionChecking,
   addonState,
+  addonInstalling,
+  addonInstallError,
   brewState,
   ffmpegState,
   ffmpegPath,
@@ -22,6 +24,7 @@ const {
   checkScreenPermission,
   openSystemPreferences,
   checkAddon,
+  installAddon,
   checkBrew,
   checkFfmpeg,
   next,
@@ -187,33 +190,21 @@ async function handleComplete(): Promise<void> {
         <!-- Step 2: Addon -->
         <template v-else-if="step === 2">
           <h2 class="text-lg font-medium text-white mb-1">
-            Combat logging addon
+            Companion addon
           </h2>
           <p class="text-sm text-zinc-400 mb-6">
-            <strong class="text-zinc-200">SimpleCombatLogger</strong> automatically enables combat
-            logging when you enter an arena — without it you would need to type
-            <code class="text-xs bg-zinc-800 px-1 rounded">/combatlog</code> manually every session.
+            <strong class="text-zinc-200">ArenaRecorderCompanion</strong> tracks your character
+            name, class and spec — the app uses this to label your recordings. Click
+            <strong class="text-zinc-200">Install</strong> to copy it directly from the app package
+            into your WoW AddOns folder.
           </p>
-
-          <div class="text-sm text-zinc-300 space-y-2 mb-6">
-            <p>
-              Install via <strong class="text-blue-400">CurseForge</strong> or the
-              <strong class="text-blue-400">Overwolf app</strong>:
-            </p>
-            <p class="font-mono text-xs text-zinc-400 bg-zinc-900 p-2 rounded">
-              curseforge.com/wow/addons/simplecombatlogger
-            </p>
-            <p class="text-xs text-zinc-500">
-              After installing, launch WoW and log in before clicking Verify.
-            </p>
-          </div>
 
           <template v-if="addonState === 'ok'">
             <div
               class="flex items-center gap-2 p-3 rounded-lg border border-green-700 bg-green-950/30 mb-4"
             >
               <span class="text-green-400">✓</span>
-              <span class="text-sm text-green-400">SimpleCombatLogger found</span>
+              <span class="text-sm text-green-400">ArenaRecorderCompanion installed</span>
             </div>
           </template>
           <template v-else-if="addonState === 'fail'">
@@ -222,18 +213,33 @@ async function handleComplete(): Promise<void> {
             >
               <span class="text-yellow-400">!</span>
               <span class="text-sm text-yellow-400">
-                Addon not found — you can continue, but install it before recording arenas.
+                Addon not found — you can continue, but install it and <code class="text-xs bg-zinc-800 px-1 rounded">/reload</code> in WoW before recording.
               </span>
             </div>
           </template>
 
+          <div
+            v-if="addonInstallError"
+            class="flex items-center gap-2 p-3 rounded-lg border border-red-700 bg-red-950/30 mb-4"
+          >
+            <span class="text-red-400">✕</span>
+            <span class="text-sm text-red-400">{{ addonInstallError }}</span>
+          </div>
+
           <div class="mt-auto flex gap-3">
             <button
-              class="btn-secondary flex-1"
-              :disabled="addonState === 'checking'"
+              class="btn-primary flex-1"
+              :disabled="addonInstalling || addonState === 'ok'"
+              @click="installAddon"
+            >
+              {{ addonInstalling ? 'Installing…' : addonState === 'ok' ? 'Installed' : 'Install addon' }}
+            </button>
+            <button
+              class="btn-secondary"
+              :disabled="addonState === 'checking' || addonInstalling"
               @click="checkAddon"
             >
-              {{ addonState === 'checking' ? 'Checking…' : 'Verify addon' }}
+              {{ addonState === 'checking' ? 'Checking…' : 'Verify' }}
             </button>
           </div>
         </template>
@@ -371,12 +377,12 @@ async function handleComplete(): Promise<void> {
               >
                 {{ addonState === 'ok' ? '✓' : '!' }}
               </span>
-              <span class="text-sm text-zinc-300">SimpleCombatLogger</span>
+              <span class="text-sm text-zinc-300">ArenaRecorderCompanion</span>
               <span
                 v-if="addonState !== 'ok'"
                 class="text-xs text-yellow-500 ml-auto"
               >
-                not found — install before recording
+                not found — install &amp; /reload in WoW
               </span>
             </div>
             <div

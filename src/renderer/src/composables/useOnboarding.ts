@@ -38,6 +38,8 @@ export function useOnboarding() {
 
   // Step 2 — Addon
   const addonState = ref<CheckState>('idle')
+  const addonInstalling = ref(false)
+  const addonInstallError = ref<string | null>(null)
 
   // Step 3 — Brew + FFmpeg
   const brewState = ref<CheckState>('idle')
@@ -130,6 +132,23 @@ export function useOnboarding() {
       wowPath: wowPath.value
     })
     addonState.value = result.found ? 'ok' : 'fail'
+  }
+
+  async function installAddon(): Promise<void> {
+    addonInstalling.value = true
+    addonInstallError.value = null
+    try {
+      const result = await window.electron.invoke('system:installAddon', {
+        wowPath: wowPath.value
+      })
+      if (result.success) {
+        await checkAddon()
+      } else {
+        addonInstallError.value = result.error ?? 'Unknown error'
+      }
+    } finally {
+      addonInstalling.value = false
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -231,6 +250,8 @@ export function useOnboarding() {
     permissionStatus,
     permissionChecking,
     addonState,
+    addonInstalling,
+    addonInstallError,
     brewState,
     ffmpegState,
     ffmpegPath,
@@ -243,6 +264,7 @@ export function useOnboarding() {
     checkScreenPermission,
     openSystemPreferences,
     checkAddon,
+    installAddon,
     checkBrew,
     checkFfmpeg,
     next,

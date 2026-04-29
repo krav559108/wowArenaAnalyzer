@@ -88,7 +88,7 @@ afterEach(async () => {
 describe('buildDirName', () => {
   it('formats a 2v2 directory name correctly', () => {
     const name = buildDirName(EVENT_2V2)
-    expect(name).toBe('2026-04-15_NagrandArena_2v2_WIN')
+    expect(name).toBe('2026-04-15_20-00-15_NagrandArena_2v2_WIN')
   })
 
   it('formats a 3v3 directory name correctly', () => {
@@ -97,12 +97,12 @@ describe('buildDirName', () => {
       bracket: '3v3',
       result: 'LOSS'
     }
-    expect(buildDirName(event)).toBe('2026-04-15_NagrandArena_3v3_LOSS')
+    expect(buildDirName(event)).toBe('2026-04-15_20-00-15_NagrandArena_3v3_LOSS')
   })
 
   it('formats a Solo Shuffle directory name with round number', () => {
     const name = buildDirName(EVENT_SS_R3)
-    expect(name).toBe('2026-04-15_TigersPeak_SoloShuffle_R3_LOSS')
+    expect(name).toBe('2026-04-15_20-00-15_TigersPeak_SoloShuffle_R3_LOSS')
   })
 
   it('strips non-alphanumeric characters from zone name', () => {
@@ -110,7 +110,7 @@ describe('buildDirName', () => {
       ...EVENT_2V2,
       zoneName: "Blade's Edge Arena"
     }
-    expect(buildDirName(event)).toBe('2026-04-15_BladesEdgeArena_2v2_WIN')
+    expect(buildDirName(event)).toBe('2026-04-15_20-00-15_BladesEdgeArena_2v2_WIN')
   })
 })
 
@@ -327,7 +327,7 @@ describe('StorageManager.processRecording', () => {
     await expect(fs.access(rawPath)).rejects.toThrow()
 
     // Recording id matches expected dir name
-    expect(recording.id).toBe('2026-04-15_NagrandArena_2v2_WIN')
+    expect(recording.id).toBe('2026-04-15_20-00-15_NagrandArena_2v2_WIN')
   })
 
   it('keeps raw file until all rounds processed, then deletes it', async () => {
