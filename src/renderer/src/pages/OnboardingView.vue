@@ -6,6 +6,7 @@ const emit = defineEmits<{ complete: [] }>()
 
 const {
   step,
+  platform,
   wowPath,
   wowPathState,
   permissionStatus,
@@ -94,7 +95,7 @@ async function handleComplete(): Promise<void> {
               <template v-else>⋯</template>
             </span>
             <span class="text-sm text-zinc-300 flex-1 truncate font-mono">
-              {{ wowPath || '/Applications/World of Warcraft' }}
+              {{ wowPath || (platform === 'win32' ? 'C:\\Program Files (x86)\\World of Warcraft' : '/Applications/World of Warcraft') }}
             </span>
           </div>
 
@@ -128,63 +129,79 @@ async function handleComplete(): Promise<void> {
           <h2 class="text-lg font-medium text-white mb-1">
             Screen Recording
           </h2>
-          <p class="text-sm text-zinc-400 mb-6">
-            The app requires Screen Recording access to capture your gameplay.
-          </p>
 
-          <div
-            class="flex items-center gap-3 p-3 rounded-lg border mb-4"
-            :class="{
-              'border-green-700 bg-green-950/30': permissionStatus === 'granted',
-              'border-yellow-700 bg-yellow-950/30': permissionStatus === 'not-determined',
-              'border-red-700 bg-red-950/30': permissionStatus === 'denied'
-            }"
-          >
-            <span class="text-lg">
-              <template v-if="permissionStatus === 'granted'">✓</template>
-              <template v-else>✗</template>
-            </span>
-            <span
-              class="text-sm flex-1"
-              :class="{
-                'text-green-400': permissionStatus === 'granted',
-                'text-yellow-400': permissionStatus === 'not-determined',
-                'text-red-400': permissionStatus === 'denied'
-              }"
-            >
-              <template v-if="permissionStatus === 'granted'">Permission granted</template>
-              <template v-else-if="permissionStatus === 'not-determined'">Permission not yet granted</template>
-              <template v-else>Permission denied</template>
-            </span>
-          </div>
-
-          <template v-if="permissionStatus !== 'granted'">
-            <p class="text-sm text-zinc-400 mb-4">
-              Open
-              <strong class="text-zinc-200">System Settings → Privacy &amp; Security → Screen Recording</strong>
-              and enable this app. Then click "Check again".
+          <!-- Windows: no permission model -->
+          <template v-if="platform === 'win32'">
+            <p class="text-sm text-zinc-400 mb-6">
+              Windows does not require a screen recording permission — the app can capture
+              your screen without any additional setup.
             </p>
-            <p class="text-xs text-zinc-500 mb-4">
-              After granting access, you may need to restart the app for the change to take effect.
-            </p>
+            <div class="flex items-center gap-3 p-3 rounded-lg border border-green-700 bg-green-950/30 mb-4">
+              <span class="text-lg text-green-400">✓</span>
+              <span class="text-sm text-green-400">No permission required on Windows</span>
+            </div>
           </template>
 
-          <div class="mt-auto flex gap-3">
-            <button
-              v-if="permissionStatus !== 'granted'"
-              class="btn-secondary flex-1"
-              @click="openSystemPreferences"
+          <!-- macOS: TCC permission check -->
+          <template v-else>
+            <p class="text-sm text-zinc-400 mb-6">
+              The app requires Screen Recording access to capture your gameplay.
+            </p>
+
+            <div
+              class="flex items-center gap-3 p-3 rounded-lg border mb-4"
+              :class="{
+                'border-green-700 bg-green-950/30': permissionStatus === 'granted',
+                'border-yellow-700 bg-yellow-950/30': permissionStatus === 'not-determined',
+                'border-red-700 bg-red-950/30': permissionStatus === 'denied'
+              }"
             >
-              Open System Settings
-            </button>
-            <button
-              class="btn-secondary flex-1"
-              :disabled="permissionChecking"
-              @click="checkScreenPermission"
-            >
-              {{ permissionChecking ? 'Checking…' : 'Check again' }}
-            </button>
-          </div>
+              <span class="text-lg">
+                <template v-if="permissionStatus === 'granted'">✓</template>
+                <template v-else>✗</template>
+              </span>
+              <span
+                class="text-sm flex-1"
+                :class="{
+                  'text-green-400': permissionStatus === 'granted',
+                  'text-yellow-400': permissionStatus === 'not-determined',
+                  'text-red-400': permissionStatus === 'denied'
+                }"
+              >
+                <template v-if="permissionStatus === 'granted'">Permission granted</template>
+                <template v-else-if="permissionStatus === 'not-determined'">Permission not yet granted</template>
+                <template v-else>Permission denied</template>
+              </span>
+            </div>
+
+            <template v-if="permissionStatus !== 'granted'">
+              <p class="text-sm text-zinc-400 mb-4">
+                Open
+                <strong class="text-zinc-200">System Settings → Privacy &amp; Security → Screen Recording</strong>
+                and enable this app. Then click "Check again".
+              </p>
+              <p class="text-xs text-zinc-500 mb-4">
+                After granting access, you may need to restart the app for the change to take effect.
+              </p>
+            </template>
+
+            <div class="mt-auto flex gap-3">
+              <button
+                v-if="permissionStatus !== 'granted'"
+                class="btn-secondary flex-1"
+                @click="openSystemPreferences"
+              >
+                Open System Settings
+              </button>
+              <button
+                class="btn-secondary flex-1"
+                :disabled="permissionChecking"
+                @click="checkScreenPermission"
+              >
+                {{ permissionChecking ? 'Checking…' : 'Check again' }}
+              </button>
+            </div>
+          </template>
         </template>
 
         <!-- Step 2: Addon -->
@@ -247,15 +264,28 @@ async function handleComplete(): Promise<void> {
         <!-- Step 3: Homebrew + FFmpeg -->
         <template v-else-if="step === 3">
           <h2 class="text-lg font-medium text-white mb-1">
-            Homebrew &amp; FFmpeg
+            <template v-if="platform === 'win32'">FFmpeg</template>
+            <template v-else>Homebrew &amp; FFmpeg</template>
           </h2>
           <p class="text-sm text-zinc-400 mb-5">
-            FFmpeg captures your screen using Apple's VideoToolbox hardware encoder. It must be
-            installed via Homebrew.
+            <template v-if="platform === 'win32'">
+              FFmpeg captures your screen using DirectShow and a hardware encoder (NVENC, AMF, or
+              QSV). Download it from
+              <span class="text-blue-400">ffmpeg.org</span> and add it to your PATH, or place
+              <code class="text-xs bg-zinc-800 px-1 rounded">ffmpeg.exe</code> in
+              <code class="text-xs bg-zinc-800 px-1 rounded">C:\ffmpeg\bin\</code>.
+            </template>
+            <template v-else>
+              FFmpeg captures your screen using Apple's VideoToolbox hardware encoder. It must be
+              installed via Homebrew.
+            </template>
           </p>
 
-          <!-- Sub-step A: Homebrew -->
-          <div class="mb-5">
+          <!-- macOS only: Sub-step A — Homebrew -->
+          <div
+            v-if="platform !== 'win32'"
+            class="mb-5"
+          >
             <p class="text-sm font-medium text-zinc-300 mb-2">
               Step A — Homebrew
             </p>
@@ -300,10 +330,13 @@ async function handleComplete(): Promise<void> {
             </template>
           </div>
 
-          <!-- Sub-step B: FFmpeg (only shown after Homebrew confirmed) -->
+          <!-- FFmpeg check (always shown on Windows; shown after Homebrew ok on macOS) -->
           <template v-if="showFfmpegSection">
-            <div class="border-t border-zinc-800 pt-5">
-              <p class="text-sm font-medium text-zinc-300 mb-2">
+            <div :class="platform !== 'win32' ? 'border-t border-zinc-800 pt-5' : ''">
+              <p
+                v-if="platform !== 'win32'"
+                class="text-sm font-medium text-zinc-300 mb-2"
+              >
                 Step B — FFmpeg
               </p>
               <template v-if="ffmpegState === 'ok'">
@@ -315,14 +348,32 @@ async function handleComplete(): Promise<void> {
                 </div>
               </template>
               <template v-else-if="ffmpegState === 'fail'">
-                <p class="text-sm text-zinc-400 mb-2">
-                  FFmpeg is not installed. Run in Terminal:
-                </p>
-                <code
-                  class="block text-xs font-mono bg-zinc-900 border border-zinc-700 p-2.5 rounded-lg text-zinc-300 mb-3"
-                >
-                  brew install ffmpeg
-                </code>
+                <template v-if="platform === 'win32'">
+                  <p class="text-sm text-zinc-400 mb-2">
+                    FFmpeg was not found. Download it and place
+                    <code class="text-xs bg-zinc-800 px-1 rounded">ffmpeg.exe</code> in one of
+                    these locations:
+                  </p>
+                  <ul class="text-xs font-mono text-zinc-400 bg-zinc-900 border border-zinc-700 rounded-lg p-2.5 space-y-1 mb-3">
+                    <li>C:\ffmpeg\bin\ffmpeg.exe</li>
+                    <li>C:\Program Files\ffmpeg\bin\ffmpeg.exe</li>
+                    <li>Or anywhere on your system PATH</li>
+                  </ul>
+                  <p class="text-xs text-zinc-500 mb-3">
+                    Get the latest build at <span class="text-blue-400">ffmpeg.org/download.html</span>
+                    (choose a Windows release from gyan.dev or BtbN builds).
+                  </p>
+                </template>
+                <template v-else>
+                  <p class="text-sm text-zinc-400 mb-2">
+                    FFmpeg is not installed. Run in Terminal:
+                  </p>
+                  <code
+                    class="block text-xs font-mono bg-zinc-900 border border-zinc-700 p-2.5 rounded-lg text-zinc-300 mb-3"
+                  >
+                    brew install ffmpeg
+                  </code>
+                </template>
                 <button
                   class="btn-secondary"
                   @click="checkFfmpeg"
@@ -363,6 +414,7 @@ async function handleComplete(): Promise<void> {
               }}</span>
             </div>
             <div
+              v-if="platform !== 'win32'"
               class="flex items-center gap-3 p-2.5 rounded-lg bg-zinc-900 border border-zinc-800"
             >
               <span class="text-green-400 text-base">✓</span>
