@@ -218,13 +218,16 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
 
   // Open the bundled addon source folder in Finder/Explorer for manual copying.
   ipcMain.handle('system:openAddonSource', (): void => {
-    const src = join(process.resourcesPath, 'addon')
+    const src = app.isPackaged
+      ? join(process.resourcesPath, 'addon')
+      : join(app.getAppPath(), 'addon')
     void shell.openPath(src)
   })
 
   // Open the WoW AddOns directory in Finder/Explorer for manual copying.
-  ipcMain.handle('system:openAddonsDir', (_event, { wowPath }: { wowPath: string }): void => {
+  ipcMain.handle('system:openAddonsDir', async (_event, { wowPath }: { wowPath: string }): Promise<void> => {
     const addonsDir = join(wowPath, '_retail_', 'Interface', 'AddOns')
+    await mkdir(addonsDir, { recursive: true }).catch(() => {})
     void shell.openPath(addonsDir)
   })
 
@@ -288,4 +291,8 @@ export function wireAddonWindow(configStore: Store<AppConfig>, win: BrowserWindo
   })
   addonWatcher.on('change', push)
   addonWatcher.on('add', push)
+
+  // Push current status immediately so the renderer reflects saved-vars state on startup
+  // without requiring a WoW /reload to trigger a file-change event.
+  push()
 }
