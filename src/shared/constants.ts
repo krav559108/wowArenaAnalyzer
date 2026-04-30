@@ -641,6 +641,6 @@ export const COMBAT_LOG_RELATIVE_PATH = '_retail_/Logs/WoWCombatLog.txt'
 // a string because FFmpeg requires -i "<videoIdx>:<audioIdx>".
 // On first launch the app enumerates devices and overwrites this with the real index.
 export const DEFAULT_CAPTURE_DEVICE = 'Capture screen 0'
-export const DEFAULT_AUDIO_DEVICE: null = null  // null = no audio; set to AVFoundation audio device index to enable
 export const DEFAULT_VIDEO_RESOLUTION = 'native'
+export const DEFAULT_MINIMIZE_TO_TRAY = true
 export const ADDON_RELATIVE_PATH = '_retail_/Interface/AddOns/ArenaRecorderCompanion'

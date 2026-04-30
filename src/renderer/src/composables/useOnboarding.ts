@@ -1,14 +1,17 @@
 // Onboarding wizard logic.
 // Encapsulates all step state and IPC calls so OnboardingView stays thin.
 //
-// Steps (0-indexed):
+// Steps (0-indexed, macOS):
 //   0 — WoW folder detection and validation
-//   1 — macOS Screen Recording permission
-//   2 — SimpleCombatLogger addon
+//   1 — Screen Recording permission
+//   2 — Addon
 //   3 — Homebrew + FFmpeg
 //   4 — Ready (summary + finish)
+//
+// Steps (Windows): same as above but step 4 = monitor selection, step 5 = Ready
 
 import { ref, computed } from 'vue'
+import type { CaptureDevice } from '@shared/ipc.types'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,19 +52,31 @@ export function useOnboarding() {
   // Step 3 sub-steps: on Windows skip brew (not applicable), show FFmpeg section immediately
   const showFfmpegSection = computed(() => platform.value === 'win32' || brewState.value === 'ok')
 
+  // Step 4 (Windows only) — monitor selection
+  const captureDevices = ref<CaptureDevice[]>([])
+  const selectedCaptureDevice = ref<CaptureDevice | null>(null)
+
+  const totalSteps = 7
+  const readyStep = 6
+
   // Whether the current step allows advancing
   const canAdvance = computed(() => {
     switch (step.value) {
       case 0:
         return wowPathState.value === 'ok'
       case 1:
-        return permissionStatus.value === 'granted'
-      case 2:
-        // Addon is recommended but not required — allow advancing regardless
+        // ACL step — informational only, always advanceable
         return true
+      case 2:
+        return permissionStatus.value === 'granted'
       case 3:
-        return ffmpegState.value === 'ok'
+        // Addon is recommended but not required
+        return true
       case 4:
+        return ffmpegState.value === 'ok'
+      case 5:
+        return selectedCaptureDevice.value !== null
+      case 6:
         return true
       default:
         return false
@@ -191,6 +206,9 @@ export function useOnboarding() {
   async function runStepChecks(): Promise<void> {
     switch (step.value) {
       case 1:
+        // ACL step — informational only, nothing to check automatically.
+        break
+      case 2:
         if (platform.value === 'win32') {
           // No screen recording permission model on Windows — auto-pass this step.
           permissionStatus.value = 'granted'
@@ -205,12 +223,11 @@ export function useOnboarding() {
           permissionChecking.value = false
         }
         break
-      case 2:
+      case 3:
         if (addonState.value === 'idle') await checkAddon()
         break
-      case 3:
+      case 4:
         if (platform.value === 'win32') {
-          // Homebrew doesn't exist on Windows — skip brew and check FFmpeg directly.
           brewState.value = 'ok'
           await checkFfmpeg()
         } else {
@@ -218,6 +235,13 @@ export function useOnboarding() {
           if (brewState.value === 'ok') await checkFfmpeg()
         }
         break
+      case 5: {
+        // Load monitors and pre-select the primary display.
+        const devices = await window.electron.invoke('system:listCaptureDevices')
+        captureDevices.value = devices
+        selectedCaptureDevice.value = devices.find((d) => d.isPrimary) ?? devices[0] ?? null
+        break
+      }
       default:
         break
     }
@@ -238,6 +262,15 @@ export function useOnboarding() {
 
   async function complete(): Promise<void> {
     await window.electron.invoke('config:set', { key: 'wowPath', value: wowPath.value })
+    if (selectedCaptureDevice.value !== null) {
+      const d = selectedCaptureDevice.value
+      // Windows: encode bounds for per-monitor gdigrab capture.
+      // macOS: store the AVFoundation device index string.
+      const deviceStr = platform.value === 'win32' && d.bounds
+        ? `${d.bounds.width}x${d.bounds.height}@${d.bounds.x},${d.bounds.y}`
+        : String(d.index)
+      await window.electron.invoke('config:set', { key: 'captureDevice', value: deviceStr })
+    }
     await window.electron.invoke('config:set', { key: 'onboardingComplete', value: true })
   }
 
@@ -245,6 +278,8 @@ export function useOnboarding() {
     // State
     step,
     platform,
+    totalSteps,
+    readyStep,
     wowPath,
     wowPathState,
     permissionStatus,
@@ -256,6 +291,8 @@ export function useOnboarding() {
     ffmpegState,
     ffmpegPath,
     showFfmpegSection,
+    captureDevices,
+    selectedCaptureDevice,
     canAdvance,
     // Actions
     init,

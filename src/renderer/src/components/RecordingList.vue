@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRecordingsStore } from '@/stores/recordingsStore'
 import type { Recording } from '@shared/ipc.types'
+import { toFileUrl } from '@/utils/fileUrl'
 
 const props = defineProps<{
   recordings: Recording[]
@@ -214,7 +215,7 @@ function isRecording(item: ListItem): item is Recording {
             >
               <img
                 v-if="item.recordings[0]?.thumbnailPath"
-                :src="'file://' + item.recordings[0].thumbnailPath"
+                :src="toFileUrl(item.recordings[0].thumbnailPath)"
                 class="w-full h-full object-cover"
                 loading="lazy"
                 @error="($event.target as HTMLImageElement).style.display = 'none'"
@@ -335,7 +336,7 @@ function isRecording(item: ListItem): item is Recording {
             >
               <img
                 v-if="item.thumbnailPath"
-                :src="'file://' + item.thumbnailPath"
+                :src="toFileUrl(item.thumbnailPath)"
                 class="w-full h-full object-cover"
                 loading="lazy"
                 @error="($event.target as HTMLImageElement).style.display = 'none'"

@@ -6,6 +6,7 @@ import { usePlayerStore } from '@/stores/playerStore'
 import { usePlayer } from '@/composables/usePlayer'
 import TimelineCanvas from './TimelineCanvas.vue'
 import { TIMELINE_COLORS, SPELL_CLASS_MAP, SPELL_SPEC_MAP, HEALER_SPEC_BY_CLASS } from '@shared/constants'
+import { toFileUrl } from '@/utils/fileUrl'
 
 const props = defineProps<{ recording: Recording }>()
 
@@ -55,7 +56,7 @@ function openPlayer(name: string): void {
   void window.electron.invoke('system:openUrl', { url: checkPvpUrl(name) })
 }
 
-const videoSrc = computed(() => encodeURI('file://' + props.recording.videoPath))
+const videoSrc = computed(() => toFileUrl(props.recording.videoPath))
 
 const hiddenTypes = ref(new Set<TimelineEventType>())
 

@@ -7,8 +7,7 @@
 // Screen Recording permission must be granted in macOS System Settings before
 // start() will succeed. Check with ScreenRecorder.checkScreenPermission() first.
 //
-// Default AVFoundation device: "1:none" (first screen, no audio).
-// Run `ffmpeg -f avfoundation -list_devices true -i ""` to find the correct index.
+// Run `ffmpeg -f avfoundation -list_devices true -i ""` to find the correct screen index.
 
 import { EventEmitter } from 'events'
 import { execSync, spawn } from 'child_process'
@@ -27,8 +26,6 @@ export type ScreenPermissionStatus = 'granted' | 'denied' | 'not-determined' | '
 export interface RecorderOptions {
   // AVFoundation video device index or name ("Capture screen 0"). macOS only.
   captureDevice?: string
-  // AVFoundation audio device index string ("0"). null / undefined = no audio. macOS only.
-  audioDevice?: string | null
   // Video bitrate in kbps
   bitrateKbps?: number
   // Frames per second
@@ -234,7 +231,6 @@ export class ScreenRecorder extends EventEmitter {
     const ffmpegPath = ScreenRecorder.resolveFfmpegPath()
 
     const device = options.captureDevice ?? DEFAULT_CAPTURE_DEVICE
-    const audioDevice = options.audioDevice ?? null
     const bitrate = options.bitrateKbps ?? DEFAULT_BITRATE_KBPS
     const fps = options.fps ?? DEFAULT_FPS
     const resolution = options.resolution && options.resolution !== 'native' ? options.resolution : undefined
@@ -246,7 +242,7 @@ export class ScreenRecorder extends EventEmitter {
       ? (options.encoder ?? await ScreenRecorder.detectWindowsEncoder(ffmpegPath))
       : 'h264_videotoolbox'
 
-    const args = buildFfmpegArgs({ device, audioDevice, bitrate, fps, resolution, outputPath, encoder })
+    const args = buildFfmpegArgs({ device, bitrate, fps, resolution, outputPath, encoder })
 
     return new Promise<void>((resolve, reject) => {
       this.stderrLines = []
@@ -391,7 +387,6 @@ export class ScreenRecorder extends EventEmitter {
 
 interface FfmpegArgConfig {
   device: string
-  audioDevice: string | null
   bitrate: number
   fps: number
   resolution?: string  // e.g. "1920x1080" — undefined means no scaling
@@ -407,10 +402,8 @@ function buildFfmpegArgs(cfg: FfmpegArgConfig): string[] {
 }
 
 function buildMacArgs(cfg: FfmpegArgConfig): string[] {
-  // Build the AVFoundation device string: "videoIdx:audioIdx" or "videoIdx:none"
   const videoIdx = cfg.device.includes(':') ? cfg.device.split(':')[0]! : cfg.device
-  const audioIdx = cfg.audioDevice !== null ? cfg.audioDevice : 'none'
-  const deviceArg = `${videoIdx}:${audioIdx}`
+  const deviceArg = `${videoIdx}:none`
 
   const args = [
     '-f',
@@ -449,33 +442,29 @@ function buildMacArgs(cfg: FfmpegArgConfig): string[] {
     args.push('-vf', `scale=${w}:${h}`)
   }
 
-  if (cfg.audioDevice !== null) {
-    args.push('-acodec', 'aac', '-b:a', '128k')
-  }
-
   args.push('-y', cfg.outputPath)
   return args
 }
 
+// Windows captureDevice format for a specific monitor: "WxH@X,Y" (e.g. "1920x1080@0,0").
+// Any other string falls back to full-desktop capture.
+function parseWindowsBounds(device: string): { w: number; h: number; x: number; y: number } | null {
+  const m = /^(\d+)x(\d+)@(-?\d+),(-?\d+)$/.exec(device)
+  if (!m) return null
+  return { w: parseInt(m[1]!, 10), h: parseInt(m[2]!, 10), x: parseInt(m[3]!, 10), y: parseInt(m[4]!, 10) }
+}
+
 function buildWindowsArgs(cfg: FfmpegArgConfig): string[] {
-  const args = [
-    '-f',
-    'gdigrab',
-    '-framerate',
-    String(cfg.fps),
-    '-i',
-    'desktop',
-    '-vcodec',
-    cfg.encoder,
-    '-pix_fmt',
-    'yuv420p',
-    '-b:v',
-    `${cfg.bitrate}k`,
-    '-r',
-    String(cfg.fps),
-    '-g',
-    String(cfg.fps * 5),
-  ]
+  const args = ['-f', 'gdigrab', '-framerate', String(cfg.fps)]
+
+  const monitor = parseWindowsBounds(cfg.device)
+  if (monitor) {
+    args.push('-offset_x', String(monitor.x), '-offset_y', String(monitor.y),
+              '-video_size', `${monitor.w}x${monitor.h}`)
+  }
+
+  args.push('-i', 'desktop', '-vcodec', cfg.encoder, '-pix_fmt', 'yuv420p',
+            '-b:v', `${cfg.bitrate}k`, '-r', String(cfg.fps), '-g', String(cfg.fps * 5))
 
   // libx264 (CPU fallback) needs explicit realtime presets; HW encoders are fast by default.
   if (cfg.encoder === 'libx264') {
@@ -486,8 +475,6 @@ function buildWindowsArgs(cfg: FfmpegArgConfig): string[] {
     const [w, h] = cfg.resolution.split('x')
     args.push('-vf', `scale=${w}:${h}`)
   }
-
-  // Audio capture on Windows requires DirectShow device configuration — not supported yet.
 
   args.push('-y', cfg.outputPath)
   return args

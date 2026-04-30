@@ -12,7 +12,7 @@ import type Store from 'electron-store'
 import { ScreenRecorder } from '../recorder/ScreenRecorder'
 import { readAddonCharacterInfo } from '../addon/SavedVarsReader'
 import { ADDON_RELATIVE_PATH, COMBAT_LOG_RELATIVE_PATH } from '@shared/constants'
-import type { AppConfig, CaptureDevice, AudioDevice } from '@shared/ipc.types'
+import type { AppConfig, CaptureDevice } from '@shared/ipc.types'
 
 export function registerSystemIpc(configStore: Store<AppConfig>): void {
   // Return the current process platform so renderer can adapt onboarding flow.
@@ -140,9 +140,16 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
   // Windows: gdigrab always captures the full desktop — returns a single synthetic entry.
   ipcMain.handle('system:listCaptureDevices', async (): Promise<CaptureDevice[]> => {
     if (process.platform === 'win32') {
-      const primary = electronScreen.getPrimaryDisplay()
-      const { width, height } = primary.size
-      return [{ index: 0, name: 'Desktop', isScreen: true, isPrimary: true, resolution: `${width}×${height}` }]
+      const displays = electronScreen.getAllDisplays()
+      const primaryId = electronScreen.getPrimaryDisplay().id
+      return displays.map((d, i) => ({
+        index: i,
+        name: d.id === primaryId ? `Monitor ${i + 1} (Primary)` : `Monitor ${i + 1}`,
+        isScreen: true,
+        isPrimary: d.id === primaryId,
+        resolution: `${d.size.width}×${d.size.height}`,
+        bounds: { x: d.bounds.x, y: d.bounds.y, width: d.bounds.width, height: d.bounds.height }
+      }))
     }
 
     return new Promise((resolve) => {
@@ -209,36 +216,16 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
     }
   )
 
-  // List audio capture devices. Windows: audio capture via DirectShow not yet supported.
-  ipcMain.handle('system:listAudioDevices', async (): Promise<AudioDevice[]> => {
-    if (process.platform === 'win32') return []
+  // Open the bundled addon source folder in Finder/Explorer for manual copying.
+  ipcMain.handle('system:openAddonSource', (): void => {
+    const src = join(process.resourcesPath, 'addon')
+    void shell.openPath(src)
+  })
 
-    return new Promise((resolve) => {
-      let ffmpegPath: string
-      try {
-        ffmpegPath = ScreenRecorder.resolveFfmpegPath()
-      } catch {
-        resolve([])
-        return
-      }
-
-      execFile(ffmpegPath, ['-f', 'avfoundation', '-list_devices', 'true', '-i', ''], (_, __, stderr) => {
-        const devices: AudioDevice[] = []
-        let inAudioSection = false
-        const lineRe = /\[(\d+)\]\s+(.+)/
-
-        for (const line of (stderr ?? '').split('\n')) {
-          if (line.includes('AVFoundation audio devices')) { inAudioSection = true; continue }
-          if (!inAudioSection) continue
-          const m = lineRe.exec(line)
-          if (m) {
-            devices.push({ index: parseInt(m[1]!, 10), name: m[2]!.trim() })
-          }
-        }
-
-        resolve(devices)
-      })
-    })
+  // Open the WoW AddOns directory in Finder/Explorer for manual copying.
+  ipcMain.handle('system:openAddonsDir', (_event, { wowPath }: { wowPath: string }): void => {
+    const addonsDir = join(wowPath, '_retail_', 'Interface', 'AddOns')
+    void shell.openPath(addonsDir)
   })
 
   // Return addon connection status by reading the SavedVariables file.

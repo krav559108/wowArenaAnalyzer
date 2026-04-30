@@ -12,34 +12,42 @@ const {
   bitratePreset,
   customBitrate,
   captureDevices,
-  audioDevices,
   devicesLoading,
   addonAlreadyInstalled,
   cleanupDaysEnabled,
   cleanupDays,
   cleanupGbEnabled,
   cleanupGb,
+  minimizeToTray,
   pickWowPath,
   pickStoragePath,
   setFps,
   setResolution,
   selectCaptureDevice,
-  selectAudioDevice,
   installAddon,
   relaunch,
 } = useSettings()
 
+const saveFlash = ref(false)
+function handleSave(): void {
+  saveFlash.value = true
+  setTimeout(() => { saveFlash.value = false }, 1500)
+}
+
 const addonInstallStatus = ref<'idle' | 'installing' | 'done' | 'error'>('idle')
 const addonInstallError = ref('')
+const showManualInstall = ref(false)
 
 async function handleInstallAddon(): Promise<void> {
   addonInstallStatus.value = 'installing'
   const result = await installAddon()
   if (result.success) {
     addonInstallStatus.value = 'done'
+    showManualInstall.value = false
   } else {
     addonInstallStatus.value = 'error'
     addonInstallError.value = result.error ?? 'Unknown error'
+    showManualInstall.value = true
   }
 }
 
@@ -60,21 +68,32 @@ const BITRATE_PRESETS = [
       <h2 class="text-sm font-semibold text-zinc-100">
         Settings
       </h2>
-      <button
-        class="p-1.5 rounded hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors"
-        title="Close settings"
-        @click="emit('close')"
-      >
-        <svg
-          class="w-4 h-4"
-          viewBox="0 0 16 16"
-          fill="currentColor"
+      <div class="flex items-center gap-2">
+        <button
+          class="px-2.5 py-1 text-xs rounded border transition-colors"
+          :class="saveFlash
+            ? 'bg-green-900/40 border-green-700 text-green-400'
+            : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700'"
+          @click="handleSave"
         >
-          <path
-            d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"
-          />
-        </svg>
-      </button>
+          {{ saveFlash ? 'Saved ✓' : 'Save' }}
+        </button>
+        <button
+          class="p-1.5 rounded hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors"
+          title="Close settings"
+          @click="emit('close')"
+        >
+          <svg
+            class="w-4 h-4"
+            viewBox="0 0 16 16"
+            fill="currentColor"
+          >
+            <path
+              d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"
+            />
+          </svg>
+        </button>
+      </div>
     </div>
 
     <!-- Restart required banner -->
@@ -330,42 +349,6 @@ const BITRATE_PRESETS = [
           </p>
         </div>
 
-        <!-- Audio device -->
-        <div class="mt-4">
-          <p class="text-xs text-zinc-400 mb-1">
-            Audio device
-          </p>
-          <p class="text-xs text-zinc-600 mb-2 leading-relaxed">
-            macOS doesn't allow capturing app audio directly. To record game sound, install
-            <button
-              class="text-blue-400 hover:text-blue-300 underline"
-              @click="() => window.electron.invoke('system:openUrl', { url: 'https://existential.audio/blackhole/' })"
-            >
-              BlackHole
-            </button>
-            (free), then in WoW Sound settings set output to BlackHole and select it below.
-          </p>
-          <div class="space-y-1.5">
-            <!-- None option -->
-            <button
-              class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs border transition-colors text-left"
-              :class="config.audioDevice === null ? 'bg-blue-600 border-blue-500 text-white' : 'bg-zinc-900 border-zinc-700 text-zinc-300 hover:border-zinc-500'"
-              @click="selectAudioDevice(null)"
-            >
-              <span class="flex-1">No audio</span>
-            </button>
-            <button
-              v-for="dev in audioDevices"
-              :key="dev.index"
-              class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs border transition-colors text-left"
-              :class="config.audioDevice === String(dev.index) ? 'bg-blue-600 border-blue-500 text-white' : 'bg-zinc-900 border-zinc-700 text-zinc-300 hover:border-zinc-500'"
-              @click="selectAudioDevice(dev)"
-            >
-              <span class="w-5 text-center flex-shrink-0 font-mono">{{ dev.index }}</span>
-              <span class="flex-1 truncate">{{ dev.name }}</span>
-            </button>
-          </div>
-        </div>
       </section>
 
       <!-- ---------------------------------------------------------------- -->
@@ -417,6 +400,45 @@ const BITRATE_PRESETS = [
         >
           ArenaRecorderCompanion installed. Enable it in WoW → AddOns and /reload.
         </p>
+
+        <!-- Manual install toggle -->
+        <button
+          v-if="addonInstallStatus !== 'done'"
+          class="text-xs text-zinc-500 hover:text-zinc-300 underline mt-3 block"
+          @click="showManualInstall = !showManualInstall"
+        >
+          {{ showManualInstall ? 'Hide manual install' : 'Install manually' }}
+        </button>
+
+        <!-- Manual install instructions -->
+        <div
+          v-if="showManualInstall && addonInstallStatus !== 'done'"
+          class="mt-3 p-3 rounded-lg bg-zinc-900 border border-zinc-700 text-xs text-zinc-400 space-y-2"
+        >
+          <p>Copy the <code class="bg-zinc-800 px-1 rounded">ArenaRecorderCompanion</code> folder into your WoW AddOns directory:</p>
+          <ol class="list-decimal list-inside space-y-2 text-zinc-500">
+            <li>
+              Open the addon source folder and copy <code class="bg-zinc-800 px-1 rounded">ArenaRecorderCompanion</code>
+              <button
+                class="ml-2 px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 transition-colors"
+                @click="() => window.electron.invoke('system:openAddonSource')"
+              >
+                Open source
+              </button>
+            </li>
+            <li>
+              Paste it into your WoW AddOns folder
+              <button
+                v-if="config"
+                class="ml-2 px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 transition-colors"
+                @click="() => window.electron.invoke('system:openAddonsDir', { wowPath: config!.wowPath })"
+              >
+                Open AddOns
+              </button>
+            </li>
+            <li>Enable it in WoW → AddOns and <code class="bg-zinc-800 px-1 rounded">/reload</code></li>
+          </ol>
+        </div>
       </section>
 
       <!-- ---------------------------------------------------------------- -->
@@ -471,6 +493,27 @@ const BITRATE_PRESETS = [
 
         <p class="text-xs text-zinc-600 mt-3">
           Auto-cleanup runs when the app starts and after each recording is processed.
+        </p>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <!-- App Behaviour                                                      -->
+      <!-- ---------------------------------------------------------------- -->
+      <section class="px-4 py-4">
+        <h3 class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">
+          App Behaviour
+        </h3>
+        <label class="flex items-center gap-3 cursor-pointer">
+          <input
+            :checked="minimizeToTray"
+            type="checkbox"
+            class="w-4 h-4 rounded accent-blue-500 cursor-pointer"
+            @change="minimizeToTray = ($event.target as HTMLInputElement).checked"
+          >
+          <span class="text-xs text-zinc-300">Minimize to tray on close</span>
+        </label>
+        <p class="text-xs text-zinc-600 mt-2">
+          Clicking × hides the app to the system tray instead of quitting. Right-click the tray icon to quit.
         </p>
       </section>
     </div>

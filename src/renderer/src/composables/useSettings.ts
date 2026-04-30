@@ -4,7 +4,7 @@
 // an app restart to take effect in the recording pipeline.
 
 import { ref, computed, onMounted } from 'vue'
-import type { AppConfig, CaptureDevice, AudioDevice } from '@shared/ipc.types'
+import type { AppConfig, CaptureDevice } from '@shared/ipc.types'
 
 export type BitratePreset = 'low' | 'medium' | 'high' | 'custom'
 
@@ -95,18 +95,12 @@ export function useSettings() {
   // -------------------------------------------------------------------------
 
   const captureDevices = ref<CaptureDevice[]>([])
-  const audioDevices = ref<AudioDevice[]>([])
   const devicesLoading = ref(false)
 
   async function loadCaptureDevices(): Promise<void> {
     devicesLoading.value = true
     try {
-      const [video, audio] = await Promise.all([
-        window.electron.invoke('system:listCaptureDevices'),
-        window.electron.invoke('system:listAudioDevices'),
-      ])
-      captureDevices.value = video
-      audioDevices.value = audio
+      captureDevices.value = await window.electron.invoke('system:listCaptureDevices')
     } finally {
       devicesLoading.value = false
     }
@@ -114,10 +108,6 @@ export function useSettings() {
 
   async function selectCaptureDevice(device: CaptureDevice): Promise<void> {
     await set('captureDevice', String(device.index))
-  }
-
-  async function selectAudioDevice(device: AudioDevice | null): Promise<void> {
-    await set('audioDevice', device !== null ? String(device.index) : null)
   }
 
   // -------------------------------------------------------------------------
@@ -177,6 +167,18 @@ export function useSettings() {
   })
 
   // -------------------------------------------------------------------------
+  // App behaviour
+  // -------------------------------------------------------------------------
+
+  const minimizeToTray = computed<boolean>({
+    get: () => config.value?.minimizeToTray ?? true,
+    set: (enabled) => {
+      if (config.value === null) return
+      void set('minimizeToTray', enabled)
+    },
+  })
+
+  // -------------------------------------------------------------------------
   // Relaunch
   // -------------------------------------------------------------------------
 
@@ -197,19 +199,18 @@ export function useSettings() {
     bitratePreset,
     customBitrate,
     captureDevices,
-    audioDevices,
     devicesLoading,
     addonAlreadyInstalled,
     cleanupDaysEnabled,
     cleanupDays,
     cleanupGbEnabled,
     cleanupGb,
+    minimizeToTray,
     pickWowPath,
     pickStoragePath,
     setFps,
     setResolution,
     selectCaptureDevice,
-    selectAudioDevice,
     installAddon,
     relaunch,
   }

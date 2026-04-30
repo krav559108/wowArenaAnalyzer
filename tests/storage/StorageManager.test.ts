@@ -100,9 +100,10 @@ describe('buildDirName', () => {
     expect(buildDirName(event)).toBe('2026-04-15_20-00-15_NagrandArena_3v3_LOSS')
   })
 
-  it('formats a Solo Shuffle directory name with round number', () => {
+  it('formats a Solo Shuffle directory name as sessionDir/roundDir', () => {
     const name = buildDirName(EVENT_SS_R3)
-    expect(name).toBe('2026-04-15_20-00-15_TigersPeak_SoloShuffle_R3_LOSS')
+    // Session dir uses zone-entry time (sessionId = '2026-04-15T20:00:00.000Z')
+    expect(name).toBe('2026-04-15_20-00-00_TigersPeak_SoloShuffle/R3_LOSS')
   })
 
   it('strips non-alphanumeric characters from zone name', () => {
@@ -229,9 +230,19 @@ describe('StorageManager.deleteRecording', () => {
     await expect(manager.deleteRecording('..')).rejects.toThrow('Invalid recording id')
   })
 
-  it('rejects id containing a slash', async () => {
+  it('accepts a valid sessionDir/roundDir id (solo-shuffle nested format)', async () => {
+    // Create a solo-shuffle session dir with a round subdir containing a recording
     const manager = new StorageManager(tmpDir)
-    await expect(manager.deleteRecording('foo/bar')).rejects.toThrow('Invalid recording id')
+    const sessionDir = join(tmpDir, 'session')
+    const roundDir = join(sessionDir, 'R1_WIN')
+    await fs.mkdir(roundDir, { recursive: true })
+    await fs.writeFile(join(roundDir, 'recording.mp4'), '')
+    await expect(manager.deleteRecording('session/R1_WIN')).resolves.not.toThrow()
+  })
+
+  it('rejects id with more than one path segment', async () => {
+    const manager = new StorageManager(tmpDir)
+    await expect(manager.deleteRecording('a/b/c')).rejects.toThrow('Invalid recording id')
   })
 })
 

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, shell, Tray, Menu, nativeImage } from 'electron'
 import { join } from 'path'
 import Store from 'electron-store'
 
@@ -22,8 +22,8 @@ import {
   DEFAULT_VIDEO_BITRATE_KBPS,
   DEFAULT_VIDEO_FPS,
   DEFAULT_CAPTURE_DEVICE,
-  DEFAULT_AUDIO_DEVICE,
-  DEFAULT_VIDEO_RESOLUTION
+  DEFAULT_VIDEO_RESOLUTION,
+  DEFAULT_MINIMIZE_TO_TRAY
 } from '@shared/constants'
 
 // ---------------------------------------------------------------------------
@@ -41,10 +41,10 @@ const configStore = new Store<AppConfig>({
     videoBitrate: DEFAULT_VIDEO_BITRATE_KBPS,
     videoFps: DEFAULT_VIDEO_FPS,
     captureDevice: DEFAULT_CAPTURE_DEVICE,
-    audioDevice: DEFAULT_AUDIO_DEVICE,
     videoResolution: DEFAULT_VIDEO_RESOLUTION,
     autoCleanupDays: null,
     autoCleanupMaxGb: null,
+    minimizeToTray: DEFAULT_MINIMIZE_TO_TRAY,
     onboardingComplete: false
   }
 })
@@ -79,7 +79,6 @@ function createPipeline(): {
       bitrateKbps: configStore.get('videoBitrate'),
       fps: configStore.get('videoFps'),
       captureDevice: configStore.get('captureDevice'),
-      audioDevice: configStore.get('audioDevice'),
       resolution: configStore.get('videoResolution')
     }
   })
@@ -117,6 +116,36 @@ function createPipeline(): {
 }
 
 // ---------------------------------------------------------------------------
+// System tray
+// ---------------------------------------------------------------------------
+
+let tray: Tray | null = null
+// Set to true when the app is actually quitting so the window close event
+// doesn't intercept and hide the window instead of letting it close.
+let isQuitting = false
+
+async function createTray(mainWindow: BrowserWindow): Promise<void> {
+  if (tray !== null) return
+  let icon = nativeImage.createEmpty()
+  try {
+    icon = await app.getFileIcon(process.execPath, { size: 'small' })
+  } catch { /* use empty icon */ }
+  tray = new Tray(icon)
+  tray.setToolTip('WoW Arena Recorder')
+  tray.on('double-click', () => mainWindow.show())
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Show', click: () => mainWindow.show() },
+    { type: 'separator' },
+    { label: 'Quit', click: () => { isQuitting = true; app.quit() } },
+  ]))
+}
+
+function destroyTray(): void {
+  tray?.destroy()
+  tray = null
+}
+
+// ---------------------------------------------------------------------------
 // Window
 // ---------------------------------------------------------------------------
 
@@ -143,6 +172,13 @@ function createWindow(
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
+  })
+
+  mainWindow.on('close', (event) => {
+    if (!isQuitting && configStore.get('minimizeToTray')) {
+      event.preventDefault()
+      mainWindow.hide()
+    }
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -176,14 +212,13 @@ app.whenReady().then(() => {
   const { recorder, stateMachine, storageManager } = createPipeline()
 
   // Keep recorder options in sync with config changes (e.g. screen selection in Settings).
-  const recorderConfigKeys = ['videoBitrate', 'videoFps', 'captureDevice', 'audioDevice', 'videoResolution'] as const
+  const recorderConfigKeys = ['videoBitrate', 'videoFps', 'captureDevice', 'videoResolution'] as const
   for (const key of recorderConfigKeys) {
     configStore.onDidChange(key, () => {
       stateMachine.updateRecorderOptions({
         bitrateKbps: configStore.get('videoBitrate'),
         fps: configStore.get('videoFps'),
         captureDevice: configStore.get('captureDevice'),
-        audioDevice: configStore.get('audioDevice'),
         resolution: configStore.get('videoResolution')
       })
     })
@@ -193,11 +228,27 @@ app.whenReady().then(() => {
   registerRecorderIpc(stateMachine)
   registerStorageIpc(storageManager)
 
-  createWindow(stateMachine, storageManager)
+  const mainWindow = createWindow(stateMachine, storageManager)
+
+  // Create tray on startup if the setting is enabled, and react to changes.
+  if (configStore.get('minimizeToTray')) {
+    void createTray(mainWindow)
+  }
+  configStore.onDidChange('minimizeToTray', (enabled) => {
+    if (enabled) {
+      void createTray(mainWindow)
+    } else {
+      destroyTray()
+    }
+  })
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    // On macOS: clicking the dock icon shows the window even if it was hidden to tray.
+    const wins = BrowserWindow.getAllWindows()
+    if (wins.length === 0) {
       createWindow(stateMachine, storageManager)
+    } else {
+      wins[0]?.show()
     }
   })
 
@@ -205,6 +256,7 @@ app.whenReady().then(() => {
   // screen recording indicator immediately (otherwise the orphaned FFmpeg
   // process keeps holding the AVFoundation session).
   app.on('before-quit', (event) => {
+    isQuitting = true
     if (!recorder.isRecording()) return
     event.preventDefault()
     recorder

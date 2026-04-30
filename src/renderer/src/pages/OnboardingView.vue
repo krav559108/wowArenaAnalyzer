@@ -7,6 +7,8 @@ const emit = defineEmits<{ complete: [] }>()
 const {
   step,
   platform,
+  totalSteps,
+  readyStep,
   wowPath,
   wowPathState,
   permissionStatus,
@@ -18,6 +20,8 @@ const {
   ffmpegState,
   ffmpegPath,
   showFfmpegSection,
+  captureDevices,
+  selectedCaptureDevice,
   canAdvance,
   init,
   detectWowPath,
@@ -32,8 +36,6 @@ const {
   back,
   complete
 } = useOnboarding()
-
-const TOTAL_STEPS = 5
 
 onMounted(async () => {
   await init()
@@ -55,14 +57,14 @@ async function handleComplete(): Promise<void> {
           WoW Arena Recorder
         </h1>
         <p class="text-sm text-zinc-400">
-          Setup — step {{ step + 1 }} of {{ TOTAL_STEPS }}
+          Setup — step {{ step + 1 }} of {{ totalSteps }}
         </p>
       </div>
 
       <!-- Step indicator -->
       <div class="flex gap-1.5 mb-8">
         <div
-          v-for="i in TOTAL_STEPS"
+          v-for="i in totalSteps"
           :key="i"
           class="h-1 flex-1 rounded-full transition-colors duration-200"
           :class="i - 1 <= step ? 'bg-blue-500' : 'bg-zinc-700'"
@@ -124,8 +126,41 @@ async function handleComplete(): Promise<void> {
           </div>
         </template>
 
-        <!-- Step 1: Screen Recording -->
+        <!-- Step 1: Advanced Combat Logging -->
         <template v-else-if="step === 1">
+          <h2 class="text-lg font-medium text-white mb-1">
+            Advanced Combat Logging
+          </h2>
+          <p class="text-sm text-zinc-400 mb-5">
+            Advanced Combat Logging must be enabled in WoW — without it the app won't receive
+            the arena data it needs to start and stop recordings.
+          </p>
+          <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-4 mb-5 space-y-3">
+            <p class="text-xs text-zinc-400 font-medium uppercase tracking-wider">
+              How to enable
+            </p>
+            <ol class="space-y-2 text-sm text-zinc-300">
+              <li class="flex gap-2">
+                <span class="text-zinc-500 flex-shrink-0">1.</span>
+                Press <code class="text-xs bg-zinc-800 px-1.5 py-0.5 rounded mx-1">Esc</code> in WoW to open the Game Menu
+              </li>
+              <li class="flex gap-2">
+                <span class="text-zinc-500 flex-shrink-0">2.</span>
+                Go to <strong class="text-zinc-200">Options → System → Network</strong>
+              </li>
+              <li class="flex gap-2">
+                <span class="text-zinc-500 flex-shrink-0">3.</span>
+                Check <strong class="text-zinc-200">Advanced Combat Logging</strong>
+              </li>
+            </ol>
+          </div>
+          <p class="text-xs text-zinc-500">
+            You only need to do this once — WoW remembers the setting between sessions.
+          </p>
+        </template>
+
+        <!-- Step 2: Screen Recording -->
+        <template v-else-if="step === 2">
           <h2 class="text-lg font-medium text-white mb-1">
             Screen Recording
           </h2>
@@ -204,8 +239,8 @@ async function handleComplete(): Promise<void> {
           </template>
         </template>
 
-        <!-- Step 2: Addon -->
-        <template v-else-if="step === 2">
+        <!-- Step 3: Addon -->
+        <template v-else-if="step === 3">
           <h2 class="text-lg font-medium text-white mb-1">
             Companion addon
           </h2>
@@ -261,8 +296,8 @@ async function handleComplete(): Promise<void> {
           </div>
         </template>
 
-        <!-- Step 3: Homebrew + FFmpeg -->
-        <template v-else-if="step === 3">
+        <!-- Step 4: Homebrew + FFmpeg -->
+        <template v-else-if="step === 4">
           <h2 class="text-lg font-medium text-white mb-1">
             <template v-if="platform === 'win32'">FFmpeg</template>
             <template v-else>Homebrew &amp; FFmpeg</template>
@@ -271,7 +306,7 @@ async function handleComplete(): Promise<void> {
             <template v-if="platform === 'win32'">
               FFmpeg captures your screen using DirectShow and a hardware encoder (NVENC, AMF, or
               QSV). Download it from
-              <span class="text-blue-400">ffmpeg.org</span> and add it to your PATH, or place
+              <button class="text-blue-400 hover:text-blue-300 underline" @click="() => window.electron.invoke('system:openUrl', { url: 'https://github.com/BtbN/FFmpeg-Builds/releases' })">BtbN FFmpeg Builds</button> and add it to your PATH, or place
               <code class="text-xs bg-zinc-800 px-1 rounded">ffmpeg.exe</code> in
               <code class="text-xs bg-zinc-800 px-1 rounded">C:\ffmpeg\bin\</code>.
             </template>
@@ -310,7 +345,7 @@ async function handleComplete(): Promise<void> {
                 </code>
               </div>
               <p class="text-xs text-zinc-500 mt-2">
-                Or visit <span class="text-blue-400">brew.sh</span> for instructions.
+                Or visit <button class="text-blue-400 hover:text-blue-300 underline" @click="() => window.electron.invoke('system:openUrl', { url: 'https://brew.sh' })">brew.sh</button> for instructions.
               </p>
               <button
                 class="btn-secondary mt-3"
@@ -359,9 +394,13 @@ async function handleComplete(): Promise<void> {
                     <li>C:\Program Files\ffmpeg\bin\ffmpeg.exe</li>
                     <li>Or anywhere on your system PATH</li>
                   </ul>
-                  <p class="text-xs text-zinc-500 mb-3">
-                    Get the latest build at <span class="text-blue-400">ffmpeg.org/download.html</span>
-                    (choose a Windows release from gyan.dev or BtbN builds).
+                  <p class="text-xs text-zinc-500 mb-1">
+                    Download from
+                    <button class="text-blue-400 hover:text-blue-300 underline" @click="() => window.electron.invoke('system:openUrl', { url: 'https://github.com/BtbN/FFmpeg-Builds/releases' })">BtbN FFmpeg Builds</button>
+                    and pick <code class="bg-zinc-800 px-1 rounded">ffmpeg-master-latest-win64-gpl.zip</code> (not the <em>-shared</em> variant).
+                  </p>
+                  <p class="text-xs text-zinc-600 mb-3">
+                    Extract the zip, then copy <code class="bg-zinc-800 px-1 rounded">ffmpeg.exe</code> from the <code class="bg-zinc-800 px-1 rounded">bin\</code> folder into one of the paths above.
                   </p>
                 </template>
                 <template v-else>
@@ -394,8 +433,39 @@ async function handleComplete(): Promise<void> {
           </template>
         </template>
 
-        <!-- Step 4: Ready -->
-        <template v-else-if="step === 4">
+        <!-- Step 5: Monitor selection -->
+        <template v-else-if="step === 5">
+          <h2 class="text-lg font-medium text-white mb-1">
+            Select your WoW monitor
+          </h2>
+          <p class="text-sm text-zinc-400 mb-5">
+            Choose the display where you play WoW. Only that screen will be recorded.
+          </p>
+          <div class="space-y-2">
+            <button
+              v-for="dev in captureDevices"
+              :key="dev.index"
+              class="w-full flex items-center gap-3 px-4 py-3 rounded-lg border transition-colors text-left"
+              :class="selectedCaptureDevice?.index === dev.index
+                ? 'bg-blue-600 border-blue-500'
+                : 'bg-zinc-900 border-zinc-700 hover:border-zinc-500'"
+              @click="selectedCaptureDevice = dev"
+            >
+              <span class="text-base">🖥</span>
+              <span class="flex-1 text-sm text-zinc-200">{{ dev.name }}</span>
+              <span class="text-xs text-zinc-400 font-mono">{{ dev.resolution }}</span>
+            </button>
+            <p
+              v-if="captureDevices.length === 0"
+              class="text-sm text-zinc-500"
+            >
+              Loading displays…
+            </p>
+          </div>
+        </template>
+
+        <!-- Step 4 (macOS) / Step 5 (Windows): Ready -->
+        <template v-else-if="step === readyStep">
           <h2 class="text-lg font-medium text-white mb-1">
             You are ready
           </h2>
@@ -446,6 +516,14 @@ async function handleComplete(): Promise<void> {
                 ffmpegPath
               }}</span>
             </div>
+            <div
+              v-if="selectedCaptureDevice"
+              class="flex items-center gap-3 p-2.5 rounded-lg bg-zinc-900 border border-zinc-800"
+            >
+              <span class="text-green-400 text-base">✓</span>
+              <span class="text-sm text-zinc-300">Monitor</span>
+              <span class="text-xs text-zinc-500 ml-auto">{{ selectedCaptureDevice.name }} — {{ selectedCaptureDevice.resolution }}</span>
+            </div>
           </div>
         </template>
       </div>
@@ -461,7 +539,7 @@ async function handleComplete(): Promise<void> {
         </button>
         <div class="flex-1" />
 
-        <template v-if="step < TOTAL_STEPS - 1">
+        <template v-if="step < totalSteps - 1">
           <button
             class="btn-primary w-28"
             :disabled="!canAdvance"

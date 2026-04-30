@@ -184,8 +184,9 @@ export interface IpcCommands {
   }
   'system:checkAddon': { params: { wowPath: string }; result: { found: boolean } }
   'system:installAddon': { params: { wowPath: string }; result: { success: boolean; error?: string } }
+  'system:openAddonSource': { params: void; result: void }
+  'system:openAddonsDir': { params: { wowPath: string }; result: void }
   'system:listCaptureDevices': { params: void; result: CaptureDevice[] }
-  'system:listAudioDevices': { params: void; result: AudioDevice[] }
   'system:checkWowPath': { params: { path: string }; result: { valid: boolean } }
   'system:openSystemPreferences': { params: void; result: void }
   'system:pickFolder': { params: void; result: { path: string | null } }
@@ -221,10 +222,10 @@ export interface AppConfig {
   videoBitrate: number // kbps
   videoFps: 30 | 60
   captureDevice: string  // AVFoundation video device index, e.g. "1"
-  audioDevice: string | null  // AVFoundation audio device index, e.g. "0"; null = no audio
   videoResolution: string // "native" | "2560x1440" | "1920x1080" | "1280x720"
   autoCleanupDays: number | null // null = disabled
   autoCleanupMaxGb: number | null // null = disabled
+  minimizeToTray: boolean
   onboardingComplete: boolean
 }
 
@@ -235,11 +236,8 @@ export interface CaptureDevice {
   // Populated for screen devices: pixel dimensions and whether it's the primary display
   resolution?: string
   isPrimary?: boolean
-}
-
-export interface AudioDevice {
-  index: number
-  name: string
+  // Windows only: monitor bounds for per-monitor gdigrab capture
+  bounds?: { x: number; y: number; width: number; height: number }
 }
 
 // ---------------------------------------------------------------------------

@@ -84,7 +84,8 @@ export class StorageManager {
     timeline: TimelineEvent[] = []
   ): Promise<Recording> {
     const dirName = buildDirName(event)
-    const dirPath = join(this.storagePath, dirName)
+    // dirName may be 'sessionDir/roundDir' for solo-shuffle or a flat name for other brackets.
+    const dirPath = join(this.storagePath, ...dirName.split('/'))
     const videoPath = join(dirPath, 'recording.mp4')
     const thumbnailPath = join(dirPath, 'thumbnail.jpg')
 
@@ -148,15 +149,34 @@ export class StorageManager {
 
       const dirPath = join(this.storagePath, entry.name)
       const metadata = await readMetadata(dirPath)
-      if (metadata === null) continue
 
-      recordings.push({
-        id: entry.name,
-        path: dirPath,
-        videoPath: join(dirPath, 'recording.mp4'),
-        thumbnailPath: join(dirPath, 'thumbnail.jpg'),
-        metadata
-      })
+      if (metadata !== null) {
+        // Flat recording (non-solo-shuffle, or old-format solo-shuffle round)
+        recordings.push({
+          id: entry.name,
+          path: dirPath,
+          videoPath: join(dirPath, 'recording.mp4'),
+          thumbnailPath: join(dirPath, 'thumbnail.jpg'),
+          metadata
+        })
+        continue
+      }
+
+      // No metadata at top level — scan subdirs (solo-shuffle session folder)
+      const subEntries = await safeReaddir(dirPath)
+      for (const sub of subEntries) {
+        if (!sub.isDirectory()) continue
+        const subDirPath = join(dirPath, sub.name)
+        const subMetadata = await readMetadata(subDirPath)
+        if (subMetadata === null) continue
+        recordings.push({
+          id: `${entry.name}/${sub.name}`,
+          path: subDirPath,
+          videoPath: join(subDirPath, 'recording.mp4'),
+          thumbnailPath: join(subDirPath, 'thumbnail.jpg'),
+          metadata: subMetadata
+        })
+      }
     }
 
     recordings.sort((a, b) => b.metadata.date.localeCompare(a.metadata.date))
@@ -166,11 +186,24 @@ export class StorageManager {
   // Deletes a recording directory by id.
   // Rejects if the id looks like a path traversal attempt.
   async deleteRecording(id: string): Promise<void> {
-    if (id.includes('/') || id.includes('\\') || id === '..' || id === '.') {
+    const parts = id.split('/')
+    if (
+      parts.length > 2 ||
+      parts.some((p) => !p || p === '..' || p === '.' || p.includes('\\'))
+    ) {
       throw new Error(`Invalid recording id: ${id}`)
     }
-    const dirPath = join(this.storagePath, id)
+    const dirPath = join(this.storagePath, ...parts)
     await fs.rm(dirPath, { recursive: true, force: true })
+
+    // If a single round was deleted, remove the parent session dir when it is now empty.
+    if (parts.length === 2) {
+      const sessionDir = join(this.storagePath, parts[0]!)
+      const remaining = (await safeReaddir(sessionDir)).filter((e) => e.isDirectory())
+      if (remaining.length === 0) {
+        await fs.rm(sessionDir, { recursive: true, force: true })
+      }
+    }
   }
 
   // Returns paths of directories that contain recording.mp4 but no metadata.json.
@@ -190,6 +223,21 @@ export class StorageManager {
 
       if (hasVideo && !hasMetadata) {
         orphaned.push(dirPath)
+        continue
+      }
+
+      // No video at top level — check subdirs (solo-shuffle session folder)
+      if (!hasVideo) {
+        const subEntries = await safeReaddir(dirPath)
+        for (const sub of subEntries) {
+          if (!sub.isDirectory()) continue
+          const subDirPath = join(dirPath, sub.name)
+          const [hasSubVideo, hasSubMetadata] = await Promise.all([
+            fileExists(join(subDirPath, 'recording.mp4')),
+            fileExists(join(subDirPath, 'metadata.json'))
+          ])
+          if (hasSubVideo && !hasSubMetadata) orphaned.push(subDirPath)
+        }
       }
     }
 
@@ -246,17 +294,19 @@ function generateThumbnail(
 // rating is not yet tracked here; it will be added when ARENA_MATCH_STATS
 // parsing is extended to feed data into processRecording.
 export function buildDirName(event: ProcessingRequiredEvent): string {
-  const date = formatDateTime(event.matchStartedAt)
   const zone = event.zoneName.replace(/[^a-zA-Z0-9]/g, '')
 
-  let bracketPart: string
   if (event.bracket === 'solo-shuffle') {
-    bracketPart = `SoloShuffle_R${event.roundNumber ?? 1}`
-  } else {
-    bracketPart = event.bracket
+    // Use zone-entry time (sessionId) so all rounds share the same session dir name,
+    // and multiple sessions on the same day are distinguished by time.
+    const sessionTime = event.sessionId ? new Date(event.sessionId) : event.matchStartedAt
+    const sessionDir = `${formatDateTime(sessionTime)}_${zone}_SoloShuffle`
+    const roundDir = `R${event.roundNumber ?? 1}_${event.result}`
+    return `${sessionDir}/${roundDir}`
   }
 
-  return `${date}_${zone}_${bracketPart}_${event.result}`
+  const date = formatDateTime(event.matchStartedAt)
+  return `${date}_${zone}_${event.bracket}_${event.result}`
 }
 
 export function buildMetadata(
