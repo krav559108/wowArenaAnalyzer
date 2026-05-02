@@ -446,25 +446,19 @@ function buildMacArgs(cfg: FfmpegArgConfig): string[] {
   return args
 }
 
-// Windows captureDevice format for a specific monitor: "WxH@X,Y" (e.g. "1920x1080@0,0").
-// Any other string falls back to full-desktop capture.
-function parseWindowsBounds(device: string): { w: number; h: number; x: number; y: number } | null {
-  const m = /^(\d+)x(\d+)@(-?\d+),(-?\d+)$/.exec(device)
-  if (!m) return null
-  return { w: parseInt(m[1]!, 10), h: parseInt(m[2]!, 10), x: parseInt(m[3]!, 10), y: parseInt(m[4]!, 10) }
-}
-
 function buildWindowsArgs(cfg: FfmpegArgConfig): string[] {
-  const args = ['-f', 'gdigrab', '-framerate', String(cfg.fps)]
-
-  const monitor = parseWindowsBounds(cfg.device)
-  if (monitor) {
-    args.push('-offset_x', String(monitor.x), '-offset_y', String(monitor.y),
-              '-video_size', `${monitor.w}x${monitor.h}`)
-  }
-
-  args.push('-i', 'desktop', '-vcodec', cfg.encoder, '-pix_fmt', 'yuv420p',
-            '-b:v', `${cfg.bitrate}k`, '-r', String(cfg.fps), '-g', String(cfg.fps * 5))
+  // Capture the WoW window directly by title — more reliable than monitor-bounds
+  // desktop capture, which on multi-monitor setups always grabs the full virtual desktop.
+  const args = [
+    '-f', 'gdigrab',
+    '-framerate', String(cfg.fps),
+    '-i', 'title=World of Warcraft',
+    '-vcodec', cfg.encoder,
+    '-pix_fmt', 'yuv420p',
+    '-b:v', `${cfg.bitrate}k`,
+    '-r', String(cfg.fps),
+    '-g', String(cfg.fps * 5),
+  ]
 
   // libx264 (CPU fallback) needs explicit realtime presets; HW encoders are fast by default.
   if (cfg.encoder === 'libx264') {

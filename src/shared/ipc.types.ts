@@ -236,8 +236,6 @@ export interface CaptureDevice {
   // Populated for screen devices: pixel dimensions and whether it's the primary display
   resolution?: string
   isPrimary?: boolean
-  // Windows only: monitor bounds for per-monitor gdigrab capture
-  bounds?: { x: number; y: number; width: number; height: number }
 }
 
 // ---------------------------------------------------------------------------

@@ -24,11 +24,17 @@ function detectPreset(bitrate: number): BitratePreset {
 export function useSettings() {
   const config = ref<AppConfig | null>(null)
   const loading = ref(true)
+  const platform = ref('darwin')
   // True when a path that requires restart has been changed since last load/restart
   const restartRequired = ref(false)
 
   async function load(): Promise<void> {
-    config.value = await window.electron.invoke('config:getAll')
+    const [cfg, plt] = await Promise.all([
+      window.electron.invoke('config:getAll'),
+      window.electron.invoke('system:getPlatform'),
+    ])
+    config.value = cfg
+    platform.value = plt.platform
     loading.value = false
   }
 
@@ -195,6 +201,7 @@ export function useSettings() {
   return {
     config,
     loading,
+    platform,
     restartRequired,
     bitratePreset,
     customBitrate,

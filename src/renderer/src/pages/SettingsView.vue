@@ -8,6 +8,7 @@ import { ref } from 'vue'
 const {
   config,
   loading,
+  platform,
   restartRequired,
   bitratePreset,
   customBitrate,
@@ -298,55 +299,68 @@ const BITRATE_PRESETS = [
           <p class="text-xs text-zinc-400 mb-2">
             Screen capture device
           </p>
-          <p
-            v-if="devicesLoading"
-            class="text-xs text-zinc-600"
-          >
-            Detecting devices…
-          </p>
-          <div
-            v-else-if="captureDevices.length === 0"
-            class="text-xs text-zinc-600"
-          >
-            No devices found — ensure FFmpeg is installed.
-          </div>
-          <div
-            v-else
-            class="space-y-1.5"
-          >
-            <button
-              v-for="dev in captureDevices"
-              :key="dev.index"
-              class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs border transition-colors text-left"
-              :class="
-                config.captureDevice === String(dev.index)
-                  ? 'bg-blue-600 border-blue-500 text-white'
-                  : dev.isScreen
-                    ? 'bg-zinc-900 border-zinc-700 text-zinc-300 hover:border-zinc-500'
-                    : 'bg-zinc-900/50 border-zinc-800 text-zinc-500'
-              "
-              @click="selectCaptureDevice(dev)"
+          <!-- Windows: WoW window is always captured by title, no selection needed -->
+          <template v-if="platform === 'win32'">
+            <div class="flex items-center gap-2 px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-xs text-zinc-300">
+              <span class="flex-1">World of Warcraft window</span>
+              <span class="text-zinc-500">auto-detected</span>
+            </div>
+            <p class="text-xs text-zinc-600 mt-1.5">
+              On Windows the app captures the WoW window directly — works on any monitor.
+            </p>
+          </template>
+          <!-- macOS: pick AVFoundation screen device -->
+          <template v-else>
+            <p
+              v-if="devicesLoading"
+              class="text-xs text-zinc-600"
             >
-              <span class="w-5 text-center flex-shrink-0 font-mono">{{ dev.index }}</span>
-              <span class="flex-1 truncate">{{ dev.name }}</span>
-              <span
-                v-if="dev.isScreen && dev.resolution"
-                class="flex-shrink-0 text-xs opacity-60"
-              >{{ dev.resolution }}</span>
-              <span
-                v-if="dev.isScreen && dev.isPrimary !== undefined"
-                class="flex-shrink-0 text-xs px-1.5 py-0.5 rounded"
-                :class="config.captureDevice === String(dev.index) ? 'bg-white/20' : 'bg-zinc-700 text-zinc-400'"
-              >{{ dev.isPrimary ? 'primary' : 'external' }}</span>
-              <span
-                v-else-if="!dev.isScreen"
-                class="flex-shrink-0 text-xs opacity-50"
-              >camera</span>
-            </button>
-          </div>
-          <p class="text-xs text-zinc-600 mt-1.5">
-            Select the "Capture screen" device — not your webcam or Continuity Camera.
-          </p>
+              Detecting devices…
+            </p>
+            <div
+              v-else-if="captureDevices.length === 0"
+              class="text-xs text-zinc-600"
+            >
+              No devices found — ensure FFmpeg is installed.
+            </div>
+            <div
+              v-else
+              class="space-y-1.5"
+            >
+              <button
+                v-for="dev in captureDevices"
+                :key="dev.index"
+                class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs border transition-colors text-left"
+                :class="
+                  config.captureDevice === String(dev.index)
+                    ? 'bg-blue-600 border-blue-500 text-white'
+                    : dev.isScreen
+                      ? 'bg-zinc-900 border-zinc-700 text-zinc-300 hover:border-zinc-500'
+                      : 'bg-zinc-900/50 border-zinc-800 text-zinc-500'
+                "
+                @click="selectCaptureDevice(dev)"
+              >
+                <span class="w-5 text-center flex-shrink-0 font-mono">{{ dev.index }}</span>
+                <span class="flex-1 truncate">{{ dev.name }}</span>
+                <span
+                  v-if="dev.isScreen && dev.resolution"
+                  class="flex-shrink-0 text-xs opacity-60"
+                >{{ dev.resolution }}</span>
+                <span
+                  v-if="dev.isScreen && dev.isPrimary !== undefined"
+                  class="flex-shrink-0 text-xs px-1.5 py-0.5 rounded"
+                  :class="config.captureDevice === String(dev.index) ? 'bg-white/20' : 'bg-zinc-700 text-zinc-400'"
+                >{{ dev.isPrimary ? 'primary' : 'external' }}</span>
+                <span
+                  v-else-if="!dev.isScreen"
+                  class="flex-shrink-0 text-xs opacity-50"
+                >camera</span>
+              </button>
+            </div>
+            <p class="text-xs text-zinc-600 mt-1.5">
+              Select the "Capture screen" device — not your webcam or Continuity Camera.
+            </p>
+          </template>
         </div>
 
       </section>

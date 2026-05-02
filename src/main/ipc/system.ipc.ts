@@ -137,19 +137,10 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
 
   // List video capture devices for the current platform.
   // macOS: parses AVFoundation device list from FFmpeg.
-  // Windows: gdigrab always captures the full desktop — returns a single synthetic entry.
+  // Windows: always captures the WoW window by title — no device selection needed.
   ipcMain.handle('system:listCaptureDevices', async (): Promise<CaptureDevice[]> => {
     if (process.platform === 'win32') {
-      const displays = electronScreen.getAllDisplays()
-      const primaryId = electronScreen.getPrimaryDisplay().id
-      return displays.map((d, i) => ({
-        index: i,
-        name: d.id === primaryId ? `Monitor ${i + 1} (Primary)` : `Monitor ${i + 1}`,
-        isScreen: true,
-        isPrimary: d.id === primaryId,
-        resolution: `${d.size.width}×${d.size.height}`,
-        bounds: { x: d.bounds.x, y: d.bounds.y, width: d.bounds.width, height: d.bounds.height }
-      }))
+      return []
     }
 
     return new Promise((resolve) => {

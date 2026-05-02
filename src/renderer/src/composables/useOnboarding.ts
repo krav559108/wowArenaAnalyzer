@@ -75,7 +75,9 @@ export function useOnboarding() {
       case 4:
         return ffmpegState.value === 'ok'
       case 5:
-        return selectedCaptureDevice.value !== null
+        // Windows: window-title capture needs no selection — always advanceable.
+        // macOS: user must select a screen device from the AVFoundation list.
+        return platform.value === 'win32' || selectedCaptureDevice.value !== null
       case 6:
         return true
       default:
@@ -262,14 +264,11 @@ export function useOnboarding() {
 
   async function complete(): Promise<void> {
     await window.electron.invoke('config:set', { key: 'wowPath', value: wowPath.value })
-    if (selectedCaptureDevice.value !== null) {
-      const d = selectedCaptureDevice.value
-      // Windows: encode bounds for per-monitor gdigrab capture.
-      // macOS: store the AVFoundation device index string.
-      const deviceStr = platform.value === 'win32' && d.bounds
-        ? `${d.bounds.width}x${d.bounds.height}@${d.bounds.x},${d.bounds.y}`
-        : String(d.index)
-      await window.electron.invoke('config:set', { key: 'captureDevice', value: deviceStr })
+    if (platform.value !== 'win32' && selectedCaptureDevice.value !== null) {
+      await window.electron.invoke('config:set', {
+        key: 'captureDevice',
+        value: String(selectedCaptureDevice.value.index)
+      })
     }
     await window.electron.invoke('config:set', { key: 'onboardingComplete', value: true })
   }

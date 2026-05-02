@@ -433,35 +433,53 @@ async function handleComplete(): Promise<void> {
           </template>
         </template>
 
-        <!-- Step 5: Monitor selection -->
+        <!-- Step 5: capture device -->
         <template v-else-if="step === 5">
-          <h2 class="text-lg font-medium text-white mb-1">
-            Select your WoW monitor
-          </h2>
-          <p class="text-sm text-zinc-400 mb-5">
-            Choose the display where you play WoW. Only that screen will be recorded.
-          </p>
-          <div class="space-y-2">
-            <button
-              v-for="dev in captureDevices"
-              :key="dev.index"
-              class="w-full flex items-center gap-3 px-4 py-3 rounded-lg border transition-colors text-left"
-              :class="selectedCaptureDevice?.index === dev.index
-                ? 'bg-blue-600 border-blue-500'
-                : 'bg-zinc-900 border-zinc-700 hover:border-zinc-500'"
-              @click="selectedCaptureDevice = dev"
-            >
-              <span class="text-base">🖥</span>
-              <span class="flex-1 text-sm text-zinc-200">{{ dev.name }}</span>
-              <span class="text-xs text-zinc-400 font-mono">{{ dev.resolution }}</span>
-            </button>
-            <p
-              v-if="captureDevices.length === 0"
-              class="text-sm text-zinc-500"
-            >
-              Loading displays…
+          <!-- Windows: window-title capture, no selection needed -->
+          <template v-if="platform === 'win32'">
+            <h2 class="text-lg font-medium text-white mb-1">
+              Screen capture
+            </h2>
+            <p class="text-sm text-zinc-400 mb-5">
+              On Windows the app captures the World of Warcraft window directly,
+              regardless of which monitor it's on. No configuration needed.
             </p>
-          </div>
+            <div class="flex items-center gap-3 px-4 py-3 rounded-lg border border-zinc-700 bg-zinc-900">
+              <span class="text-zinc-300 text-sm">World of Warcraft window</span>
+              <span class="ml-auto text-xs text-zinc-500">auto-detected</span>
+            </div>
+          </template>
+
+          <!-- macOS: pick AVFoundation screen device -->
+          <template v-else>
+            <h2 class="text-lg font-medium text-white mb-1">
+              Select your WoW monitor
+            </h2>
+            <p class="text-sm text-zinc-400 mb-5">
+              Choose the display where you play WoW. Only that screen will be recorded.
+            </p>
+            <div class="space-y-2">
+              <button
+                v-for="dev in captureDevices"
+                :key="dev.index"
+                class="w-full flex items-center gap-3 px-4 py-3 rounded-lg border transition-colors text-left"
+                :class="selectedCaptureDevice?.index === dev.index
+                  ? 'bg-blue-600 border-blue-500'
+                  : 'bg-zinc-900 border-zinc-700 hover:border-zinc-500'"
+                @click="selectedCaptureDevice = dev"
+              >
+                <span class="text-base">🖥</span>
+                <span class="flex-1 text-sm text-zinc-200">{{ dev.name }}</span>
+                <span class="text-xs text-zinc-400 font-mono">{{ dev.resolution }}</span>
+              </button>
+              <p
+                v-if="captureDevices.length === 0"
+                class="text-sm text-zinc-500"
+              >
+                Loading displays…
+              </p>
+            </div>
+          </template>
         </template>
 
         <!-- Step 4 (macOS) / Step 5 (Windows): Ready -->
