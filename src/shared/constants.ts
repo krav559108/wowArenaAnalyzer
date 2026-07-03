@@ -183,6 +183,55 @@ export const SPELL_IDS_CC: ReadonlySet<number> = new Set([
   385954, // Shield Charge (Warrior)
   389831, // Snowdrift (Mage)
   1234195, // Void Nova (Demon Hunter)
+
+  // --- Second verification pass against wago.tools build 12.0.1.66838's
+  // diminishingReturns lists (packages/shared/src/data/spellClassMap.json in
+  // wowarenalogs) — these spells were already correctly categorized in DR_CATEGORY
+  // below, but missing from this set meant CombatLogParser never classified their
+  // casts as 'cc' events in the first place, so the DR_CATEGORY entries were
+  // unreachable dead data. Includes root/taunt/knockback/silence/disarm DR families
+  // that had ~zero coverage, plus common arena CC (Frost Nova, Void Tendrils, Disable).
+  122, // Frost Nova (Mage)
+  355, // Taunt (Warrior)
+  1161, // Challenging Shout (Warrior)
+  1330, // Garrote — Silence (Rogue)
+  6795, // Growl (Druid/Hunter pet)
+  15487, // Silence (Priest — Shadow)
+  33395, // Freeze (Mage — Water Elemental)
+  51490, // Thunderstorm (Shaman)
+  56222, // Dark Command (Death Knight)
+  61391, // Typhoon (Druid)
+  62124, // Hand of Reckoning (Paladin)
+  64695, // Earthgrab (Shaman totem)
+  102359, // Mass Entanglement (Hunter)
+  106898, // Stampeding Roar (Druid)
+  108199, // Gorefiend's Grasp (Death Knight)
+  114404, // Void Tendrils (Priest)
+  116189, // Provoke (Monk)
+  116706, // Disable (Monk, root application)
+  132469, // Typhoon (Druid, alt ID)
+  136634, // Narrow Escape (Hunter)
+  170855, // Entangling Roots (Druid, alt ID)
+  185245, // Torment (Demon Hunter)
+  199042, // Thunderstruck (Warrior)
+  204490, // Sigil of Silence (Demon Hunter)
+  207777, // Dismantle (Rogue)
+  209749, // Faerie Swarm (Druid)
+  212638, // Tracker's Net (Hunter — Survival)
+  233759, // Grapple Weapon (Monk)
+  236077, // Disarm (Warrior)
+  355689, // Landslide (Evoker)
+  370970, // The Hunt (Demon Hunter)
+  374776, // Tightening Grasp (Evoker)
+  386071, // Disrupting Shout (Warrior — Protection; also an interrupt, see SPELL_IDS_INTERRUPT)
+  407032, // Sticky Tar Bomb (Hunter — Survival)
+  454787, // Ice Prison (Mage)
+  1258862, // Encasing Cold (Mage — Frost)
+  1277104, // Javelineer (Warrior)
+
+  // --- Trinket/CC-break verification pass (real combat log check) — War Stomp was
+  // previously miscategorized as a CC-break; it's actually a stun dealt to enemies.
+  20549, // War Stomp (Tauren racial)
 ])
 
 // ---------------------------------------------------------------------------
@@ -277,6 +326,20 @@ export const SPELL_IDS_DEFENSIVE: ReadonlySet<number> = new Set([
   342246, // Alter Time (Mage, current ID — supersedes 108978)
   414658, // Ice Cold (Mage)
   357170, // Time Dilation (Evoker)
+
+  // --- Second verification pass against wago.tools build 12.0.1.66838's
+  // "important" spell list (buffs_defensive type) — previously missing.
+  1044,   // Blessing of Freedom (Paladin)
+  50334,  // Berserk (Druid — Guardian)
+  64843,  // Divine Hymn (Priest — Holy)
+  110909, // Alter Time (Mage — Arcane, alt ID)
+  114052, // Ascendance (Shaman — Restoration)
+  132578, // Invoke Niuzao, the Black Ox (Monk — Windwalker)
+  187827, // Metamorphosis (Demon Hunter — Vengeance)
+  204021, // Fiery Brand (Demon Hunter, alt ID)
+  403876, // Divine Protection (Paladin — Holy, alt ID)
+  1246965, // Psychic Shroud (Priest)
+  55342,  // Mirror Image (Mage)
 ])
 
 // ---------------------------------------------------------------------------
@@ -306,6 +369,32 @@ export const SPELL_IDS_OFFENSIVE: ReadonlySet<number> = new Set([
   137639, // Storm, Earth, and Fire (Monk)
   375087, // Dragonrage (Evoker)
   279302, // Frostwyrm's Fury (DK Frost)
+
+  // --- Second verification pass against wago.tools build 12.0.1.66838's
+  // "important" spell list (buffs_offensive / debuffs_offensive type) — previously missing.
+  49028,  // Dancing Rune Weapon (Death Knight)
+  106951, // Berserk (Druid — Feral)
+  102543, // Incarnation: Avatar of Ashamane (Druid — Feral)
+  102560, // Incarnation: Chosen of Elune (Druid — Balance)
+  390414, // Incarnation: Chosen of Elune (Druid — Balance, alt ID)
+  102558, // Incarnation: Guardian of Ursoc (Druid — Guardian)
+  114051, // Ascendance (Shaman — Enhancement)
+  121471, // Shadow Blades (Rogue — Subtlety)
+  194223, // Celestial Alignment (Druid — Balance)
+  383410, // Celestial Alignment (Druid — Balance, alt ID)
+  194249, // Voidform (Priest — Shadow)
+  228260, // Voidform (Priest — Shadow, alt ID)
+  216331, // Avenging Crusader (Paladin — Holy)
+  265187, // Summon Demonic Tyrant (Warlock — Demonology)
+  205180, // Summon Darkglare (Warlock — Affliction)
+  288613, // Trueshot (Hunter — Marksmanship)
+  360194, // Deathmark (Rogue — Assassination)
+  365362, // Arcane Surge (Mage — Arcane, alt ID)
+  389539, // Sentinel (Paladin — Protection)
+  466772, // Doom Winds (Shaman — Enhancement)
+  454351, // Avenging Wrath (Paladin — Holy, alt ID)
+  454373, // Avenging Wrath (Paladin — Holy, alt ID 2)
+  191427, // Metamorphosis (Demon Hunter — Havoc)
 ])
 
 // ---------------------------------------------------------------------------
@@ -342,14 +431,22 @@ export const SPELL_IDS_INTERRUPT: ReadonlySet<number> = new Set([
 
 // PvP trinket and racial CC breaks — shown as 'trinket' event type
 export const SPELL_IDS_TRINKET: ReadonlySet<number> = new Set([
-  42292, // PvP Trinket
-  59752, // Every Man for Himself (Human racial)
-  7744,  // Will of the Forsaken (Undead racial)
+  // 42292 ("PvP Trinket") never fires in current combat logs — verified against a real
+  // Midnight log line, the actual cast/aura ID is 283167. Kept discovering this required
+  // grepping WoWCombatLog-*.txt directly; trinket usage was silently undetected before.
+  283167, // PvP Trinket (verified against real log, supersedes stale 42292)
+  336126, // Gladiator's Medallion (verified against real log — separate item ID from 283167)
+  59752,  // Every Man for Himself (Human racial)
+  7744,   // Will of the Forsaken (Undead racial)
 ])
 
+// Racial CC breaks — verified against real combat log lines (cast + aura-applied,
+// same spellId in both). Escape Artist/Fireblood/Stoneform all cleanse CC or reduce
+// its duration; distinct from SPELL_IDS_TRINKET, which are full-immunity-style breaks.
 export const SPELL_IDS_CC_BREAK: ReadonlySet<number> = new Set([
-  20549,  // War Stomp (Tauren racial)
-  255654, // Battle Cry (generic CC break)
+  20589,  // Escape Artist (Gnome racial) — removes root/snare effects
+  273104, // Fireblood (Dark Iron Dwarf racial) — removes all CC effects
+  65116,  // Stoneform (Dwarf racial) — removes poison/disease/curse/bleed
 ])
 
 // ---------------------------------------------------------------------------
@@ -362,6 +459,14 @@ export const SPELL_IDS_IMMUNITY: ReadonlySet<number> = new Set([
   186265, // Aspect of the Turtle (Hunter)
   33786,  // Cyclone (Druid) — target is untargetable/unaffectable while airborne
   710,    // Banish (Warlock, on demon targets)
+
+  // --- Second verification pass against wago.tools build 12.0.1.66838's
+  // immunities / immunities_spells lists — previously missing.
+  8178,   // Grounding Totem (Shaman) — redirects one harmful spell
+  212295, // Nether Ward (Warlock — Demonology) — redirects one harmful spell
+  378441, // Time Stop (Evoker — Preservation)
+  378464, // Nullifying Shroud (Evoker — Preservation)
+  408558, // Phase Shift (Priest)
 ])
 
 // ---------------------------------------------------------------------------
@@ -644,6 +749,83 @@ export const SPELL_CLASS_MAP: Readonly<Record<number, string>> = {
   132169: 'Warrior', // Storm Bolt (alt ID)
   385954: 'Warrior', // Shield Charge
   386071: 'Warrior', // Disrupting Shout
+
+  // --- Second verification pass against wago.tools build 12.0.1.66838 — class
+  // attribution for the DR-tracked CC spells added to SPELL_IDS_CC above.
+  122: 'Mage',           // Frost Nova
+  355: 'Warrior',        // Taunt
+  1161: 'Warrior',       // Challenging Shout
+  1330: 'Rogue',         // Garrote — Silence
+  6795: 'Druid',         // Growl
+  15487: 'Priest',       // Silence
+  33395: 'Mage',         // Freeze (Water Elemental)
+  51490: 'Shaman',       // Thunderstorm
+  56222: 'Death Knight', // Dark Command
+  61391: 'Druid',        // Typhoon
+  62124: 'Paladin',      // Hand of Reckoning
+  64695: 'Shaman',       // Earthgrab
+  102359: 'Druid',       // Mass Entanglement
+  106898: 'Druid',       // Stampeding Roar
+  108199: 'Death Knight', // Gorefiend's Grasp
+  114404: 'Priest',      // Void Tendrils
+  116189: 'Monk',        // Provoke
+  116706: 'Monk',        // Disable
+  132469: 'Druid',       // Typhoon (alt ID)
+  136634: 'Hunter',      // Narrow Escape
+  170855: 'Druid',       // Entangling Roots (alt ID)
+  185245: 'Demon Hunter', // Torment
+  199042: 'Warrior',     // Thunderstruck
+  204490: 'Demon Hunter', // Sigil of Silence
+  207777: 'Rogue',       // Dismantle
+  209749: 'Druid',       // Faerie Swarm
+  212638: 'Hunter',      // Tracker's Net
+  233759: 'Monk',        // Grapple Weapon
+  236077: 'Warrior',     // Disarm
+  355689: 'Evoker',      // Landslide
+  370970: 'Demon Hunter', // The Hunt
+  374776: 'Death Knight', // Tightening Grasp
+  407032: 'Hunter',      // Sticky Tar Bomb
+  1277104: 'Warrior',    // Javelineer
+
+  // Offensive/defensive/immunity additions from the same verification pass
+  49028: 'Death Knight',  // Dancing Rune Weapon
+  106951: 'Druid',        // Berserk (Feral)
+  102543: 'Druid',        // Incarnation: Avatar of Ashamane
+  102560: 'Druid',        // Incarnation: Chosen of Elune
+  390414: 'Druid',        // Incarnation: Chosen of Elune (alt ID)
+  102558: 'Druid',        // Incarnation: Guardian of Ursoc
+  114051: 'Shaman',       // Ascendance (Enhancement)
+  121471: 'Rogue',        // Shadow Blades
+  194223: 'Druid',        // Celestial Alignment
+  383410: 'Druid',        // Celestial Alignment (alt ID)
+  194249: 'Priest',       // Voidform
+  228260: 'Priest',       // Voidform (alt ID)
+  216331: 'Paladin',      // Avenging Crusader
+  265187: 'Warlock',      // Summon Demonic Tyrant
+  205180: 'Warlock',      // Summon Darkglare
+  288613: 'Hunter',       // Trueshot
+  360194: 'Rogue',        // Deathmark
+  365362: 'Mage',         // Arcane Surge (alt ID)
+  389539: 'Paladin',      // Sentinel
+  466772: 'Shaman',       // Doom Winds
+  454351: 'Paladin',      // Avenging Wrath (alt ID)
+  454373: 'Paladin',      // Avenging Wrath (alt ID 2)
+  191427: 'Demon Hunter', // Metamorphosis (Havoc)
+  1044: 'Paladin',        // Blessing of Freedom
+  50334: 'Druid',         // Berserk (Guardian)
+  64843: 'Priest',        // Divine Hymn
+  110909: 'Mage',         // Alter Time (alt ID)
+  114052: 'Shaman',       // Ascendance (Restoration)
+  132578: 'Monk',         // Invoke Niuzao, the Black Ox
+  204021: 'Demon Hunter', // Fiery Brand (alt ID)
+  403876: 'Paladin',      // Divine Protection (alt ID)
+  1246965: 'Priest',      // Psychic Shroud
+  55342: 'Mage',          // Mirror Image
+  8178: 'Shaman',         // Grounding Totem
+  212295: 'Warlock',      // Nether Ward
+  378441: 'Evoker',       // Time Stop
+  378464: 'Evoker',       // Nullifying Shroud
+  408558: 'Priest',       // Phase Shift
 }
 
 // ---------------------------------------------------------------------------
@@ -862,6 +1044,9 @@ export const DR_CATEGORY: Readonly<Record<number, string>> = {
   389831: 'stun',      // Snowdrift (Mage)
   1234195: 'stun',     // Void Nova (Demon Hunter)
   30283: 'stun',       // Shadowfury (Warlock)
+  20549: 'stun',       // War Stomp (Tauren racial) — verified against real log: applies a
+                       // DEBUFF on the target, i.e. it's CC dealt, not a self CC-break like
+                       // it was previously (mis)categorized as
 
   // Incapacitate
   6770: 'incapacitate', // Sap
@@ -904,6 +1089,7 @@ export const DR_CATEGORY: Readonly<Record<number, string>> = {
   106898: 'taunt',   // Stampeding Roar (Druid)
   116189: 'taunt',   // Provoke (Monk)
   185245: 'taunt',   // Torment (Demon Hunter)
+  386071: 'taunt',   // Disrupting Shout (Warrior — Protection)
 
   // Knockback
   51490: 'knockback',  // Thunderstorm (Shaman)
@@ -917,6 +1103,7 @@ export const DR_CATEGORY: Readonly<Record<number, string>> = {
   31935: 'silence',   // Avenger's Shield (Paladin)
   204490: 'silence',  // Sigil of Silence (Demon Hunter)
   374776: 'silence',  // Tightening Grasp (Evoker)
+  1277104: 'silence', // Javelineer (Warrior)
 
   // Disarm
   207777: 'disarm',   // Dismantle (Rogue)
