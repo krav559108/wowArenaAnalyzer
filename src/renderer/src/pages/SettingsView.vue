@@ -251,7 +251,7 @@ const BITRATE_PRESETS = [
         <div class="mb-4">
           <p class="text-xs text-zinc-400 mb-2">
             Frame rate
-            <span class="text-zinc-600 ml-1">(macOS AVFoundation caps screen capture at 30 fps)</span>
+            <span class="text-zinc-600 ml-1">60 fps needs a faster CPU/GPU — lower it if recordings drop frames</span>
           </p>
           <div class="flex gap-2">
             <button

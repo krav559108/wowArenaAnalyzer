@@ -50,11 +50,6 @@ const configStore = new Store<AppConfig>({
   }
 })
 
-// Migrate: clamp stored FPS to 30 if the saved value is 60 (device cap)
-if (configStore.get('videoFps') === 60) {
-  configStore.set('videoFps', 30)
-}
-
 // ---------------------------------------------------------------------------
 // Pipeline singletons — created once, shared across IPC registrations
 // ---------------------------------------------------------------------------
