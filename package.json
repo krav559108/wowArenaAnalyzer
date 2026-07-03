@@ -1,7 +1,7 @@
 {
   "name": "wow-arena-analyzer",
-  "version": "1.0.6",
-  "description": "macOS WoW arena recorder — auto-records arenas via combat log + FFmpeg",
+  "version": "1.0.7",
+  "description": "WoW arena recorder for macOS and Windows — auto-records arenas via combat log",
   "main": "out/main/index.js",
   "author": "Aleksandr Kravchenko",
   "license": "MIT",
