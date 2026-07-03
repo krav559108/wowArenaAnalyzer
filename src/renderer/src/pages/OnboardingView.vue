@@ -308,8 +308,8 @@ async function handleComplete(): Promise<void> {
           </h2>
           <p class="text-sm text-zinc-400 mb-5">
             <template v-if="platform === 'win32'">
-              FFmpeg captures your screen using DirectShow and a hardware encoder (NVENC, AMF, or
-              QSV). Download it from
+              FFmpeg trims and generates thumbnails for your recordings after each match. Download
+              it from
               <button
                 class="text-blue-400 hover:text-blue-300 underline"
                 @click="() => window.electron.invoke('system:openUrl', { url: 'https://github.com/BtbN/FFmpeg-Builds/releases' })"
@@ -320,8 +320,8 @@ async function handleComplete(): Promise<void> {
               <code class="text-xs bg-zinc-800 px-1 rounded">C:\ffmpeg\bin\</code>.
             </template>
             <template v-else>
-              FFmpeg captures your screen using Apple's VideoToolbox hardware encoder. It must be
-              installed via Homebrew.
+              FFmpeg trims and generates thumbnails for your recordings after each match. It must
+              be installed via Homebrew.
             </template>
           </p>
 
