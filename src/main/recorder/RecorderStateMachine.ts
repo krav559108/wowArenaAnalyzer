@@ -19,7 +19,8 @@ import {
   SPELL_IDS_CC,
   SPELL_IDS_DEFENSIVE,
   SPELL_IDS_IMMUNITY,
-  LOW_VALUE_CC_IDS
+  LOW_VALUE_CC_IDS,
+  DEATH_RECAP_WINDOW_SECS
 } from '@shared/constants'
 import { getClassDefensives, type WowClass } from '@shared/classAbilities'
 import { detectMistakes, type AuraWindow, type DetectedMistake } from '../analysis/mistakeDetector'
@@ -228,9 +229,11 @@ interface SessionContext {
   playerRatings: Map<string, number>
 
   // --- Per-round damage/heal tracking (cleared on ARENA_MATCH_START) ---
-  // Last 5 seconds of incoming damage per target GUID for death summary
+  // Last DEATH_RECAP_WINDOW_SECS of incoming damage per target GUID for death recap
   recentDamageByGuid: Map<string, DamageHit[]>
-  // Last 5 seconds of HP snapshots per GUID for death summary HP% (Advanced Combat Logging)
+  // Last DEATH_RECAP_WINDOW_SECS of incoming healing per target GUID for death recap
+  recentHealingByGuid: Map<string, DamageHit[]>
+  // Last DEATH_RECAP_WINDOW_SECS of HP snapshots per GUID for death recap HP% (Advanced Combat Logging)
   recentHealthByGuid: Map<string, Array<{ relSecs: number; hp: number; maxHp: number }>>
   // Pending interrupt correlations — keyed by casterGuid and targetGuid for back-filling
   // timeline events once SPELL_INTERRUPT (success) or Precognition (failure) resolves them.
@@ -416,6 +419,7 @@ export class RecorderStateMachine extends EventEmitter {
       guidTeams: new Map(),
       playerRatings: new Map(),
       recentDamageByGuid: new Map(),
+      recentHealingByGuid: new Map(),
       recentHealthByGuid: new Map(),
       pendingInterruptByCaster: new Map(),
       pendingInterruptByTarget: new Map(),
@@ -483,6 +487,7 @@ export class RecorderStateMachine extends EventEmitter {
         guidTeams: new Map(),
         playerRatings: new Map(),
         recentDamageByGuid: new Map(),
+        recentHealingByGuid: new Map(),
         recentHealthByGuid: new Map(),
         pendingInterruptByCaster: new Map(),
         pendingInterruptByTarget: new Map(),
@@ -535,6 +540,7 @@ export class RecorderStateMachine extends EventEmitter {
     this.session.healDoneByName = new Map()
     this.session.auraWindows = new Map()
     this.session.recentDamageByGuid = new Map()
+    this.session.recentHealingByGuid = new Map()
     this.session.recentHealthByGuid = new Map()
     this.session.pendingInterruptByCaster = new Map()
     this.session.pendingInterruptByTarget = new Map()
@@ -1315,31 +1321,69 @@ export class RecorderStateMachine extends EventEmitter {
       this.session.playerCooldowns
     )
 
-    // Collect last 3 seconds of incoming damage for death summary
-    const recentHits = this.session.recentDamageByGuid.get(e.unitGuid) ?? []
+    // Collect the death-recap window of incoming damage/healing, HP%-annotated.
     const healthSamples = this.session.recentHealthByGuid.get(e.unitGuid) ?? []
-    const deathSummary = recentHits
-      .filter((h) => relSecs - h.relSecs <= 3)
-      .map((h) => {
-        // Find nearest HP sample just before this hit
-        let hpPct: number | undefined
-        let closestDelta = Infinity
-        for (const s of healthSamples) {
-          const delta = h.relSecs - s.relSecs
-          if (delta >= 0 && delta < closestDelta && s.maxHp > 0) {
-            closestDelta = delta
-            hpPct = Math.round((s.hp / s.maxHp) * 100)
-          }
+    const hpPctAt = (hitRelSecs: number): number | undefined => {
+      let hpPct: number | undefined
+      let closestDelta = Infinity
+      for (const s of healthSamples) {
+        const delta = hitRelSecs - s.relSecs
+        if (delta >= 0 && delta < closestDelta && s.maxHp > 0) {
+          closestDelta = delta
+          hpPct = Math.round((s.hp / s.maxHp) * 100)
         }
-        return { ...h, relSecs: parseFloat((h.relSecs - relSecs).toFixed(2)), hpPct }
-      })
+      }
+      return hpPct
+    }
+    const recentHits = this.session.recentDamageByGuid.get(e.unitGuid) ?? []
+    const deathSummary = recentHits
+      .filter((h) => relSecs - h.relSecs <= DEATH_RECAP_WINDOW_SECS)
+      .map((h) => ({ ...h, relSecs: parseFloat((h.relSecs - relSecs).toFixed(2)), hpPct: hpPctAt(h.relSecs) }))
+
+    const recentHeals = this.session.recentHealingByGuid.get(e.unitGuid) ?? []
+    const deathHealing = recentHeals
+      .filter((h) => relSecs - h.relSecs <= DEATH_RECAP_WINDOW_SECS)
+      .map((h) => ({ ...h, relSecs: parseFloat((h.relSecs - relSecs).toFixed(2)), hpPct: hpPctAt(h.relSecs) }))
+
+    // CC applied to the dying player and defensives/trinket they used, both drawn from
+    // the round's timeline (already-recorded cast events) rather than new state.
+    const deathCCTaken = this.session.pendingTimeline
+      .filter(
+        (ev) =>
+          ev.type === 'cc' &&
+          ev.targetName === e.unitName &&
+          relSecs - ev.timestamp >= 0 &&
+          relSecs - ev.timestamp <= DEATH_RECAP_WINDOW_SECS
+      )
+      .map((ev) => ({
+        spellId: ev.spellId,
+        spellName: ev.spellName ?? '',
+        relSecs: parseFloat((ev.timestamp - relSecs).toFixed(2)),
+        casterName: ev.casterName
+      }))
+    const deathDefensivesUsed = this.session.pendingTimeline
+      .filter(
+        (ev) =>
+          (ev.type === 'defensive' || ev.type === 'trinket') &&
+          ev.casterName === e.unitName &&
+          relSecs - ev.timestamp >= 0 &&
+          relSecs - ev.timestamp <= DEATH_RECAP_WINDOW_SECS
+      )
+      .map((ev) => ({
+        spellId: ev.spellId,
+        spellName: ev.spellName ?? '',
+        relSecs: parseFloat((ev.timestamp - relSecs).toFixed(2))
+      }))
 
     this.session.pendingTimeline.push({
       timestamp: relSecs,
       type: isEnemy ? 'death-enemy' : 'death-player',
       unit: e.unitName,
       unusedDefensives: unusedDefensives.length > 0 ? unusedDefensives : undefined,
-      deathSummary: deathSummary.length > 0 ? deathSummary : undefined
+      deathSummary: deathSummary.length > 0 ? deathSummary : undefined,
+      deathHealing: deathHealing.length > 0 ? deathHealing : undefined,
+      deathCCTaken: deathCCTaken.length > 0 ? deathCCTaken : undefined,
+      deathDefensivesUsed: deathDefensivesUsed.length > 0 ? deathDefensivesUsed : undefined
     })
 
     // Solo shuffle: end this round's recording on any real player death.
@@ -1414,8 +1458,8 @@ export class RecorderStateMachine extends EventEmitter {
 
     const samples = this.session.recentHealthByGuid.get(e.unitGuid) ?? []
     samples.push({ relSecs, hp: e.hp, maxHp: e.maxHp })
-    // Trim to last 5 seconds
-    const cutoff = relSecs - 5
+    // Trim to the death-recap window
+    const cutoff = relSecs - DEATH_RECAP_WINDOW_SECS
     const trimmed = cutoff > 0 ? samples.filter((s) => s.relSecs >= cutoff) : samples
     this.session.recentHealthByGuid.set(e.unitGuid, trimmed)
   }
@@ -1431,11 +1475,11 @@ export class RecorderStateMachine extends EventEmitter {
     const relSecs = (e.timestamp.getTime() - this.session.matchStartedAt.getTime()) / 1000
     if (relSecs < 0) return
 
-    // Track damage for death summary (sliding 5-second window per target)
+    // Track damage for death recap (sliding window per target)
     const hits = this.session.recentDamageByGuid.get(e.targetGuid) ?? []
     hits.push({ relSecs, spellId: e.spellId, spellName: e.spellName, amount: e.amount })
-    // Trim to last 5 seconds
-    const cutoff = relSecs - 5
+    // Trim to the death-recap window
+    const cutoff = relSecs - DEATH_RECAP_WINDOW_SECS
     const trimmed = cutoff > 0 ? hits.filter((h) => h.relSecs >= cutoff) : hits
     this.session.recentDamageByGuid.set(e.targetGuid, trimmed)
 
@@ -1466,6 +1510,7 @@ export class RecorderStateMachine extends EventEmitter {
       return
 
     if (e.casterName) this.tryResolvePendingCombatant(e.casterGuid, e.casterName)
+    if (e.targetName) this.tryResolvePendingCombatant(e.targetGuid ?? '', e.targetName)
 
     const relSecs = (e.timestamp.getTime() - this.session.matchStartedAt.getTime()) / 1000
     if (relSecs < 0) return
@@ -1473,6 +1518,15 @@ export class RecorderStateMachine extends EventEmitter {
     // Per-player meter (Details!/Skada-style Healing Done).
     if (e.casterName) {
       this.session.healDoneByName.set(e.casterName, (this.session.healDoneByName.get(e.casterName) ?? 0) + e.amount)
+    }
+
+    // Track healing received for death recap (sliding window per target)
+    if (e.targetGuid) {
+      const hits = this.session.recentHealingByGuid.get(e.targetGuid) ?? []
+      hits.push({ relSecs, spellId: e.spellId, spellName: e.spellName ?? '', amount: e.amount })
+      const cutoff = relSecs - DEATH_RECAP_WINDOW_SECS
+      const trimmed = cutoff > 0 ? hits.filter((h) => h.relSecs >= cutoff) : hits
+      this.session.recentHealingByGuid.set(e.targetGuid, trimmed)
     }
 
     const sec = Math.floor(relSecs)

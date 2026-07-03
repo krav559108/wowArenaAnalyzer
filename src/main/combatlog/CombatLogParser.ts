@@ -229,10 +229,15 @@ export interface SpellDamageEvent {
   timestamp: Date
 }
 
-// Fired for SPELL_HEAL / SPELL_PERIODIC_HEAL — used for team healing charts
+// Fired for SPELL_HEAL / SPELL_PERIODIC_HEAL — used for team healing charts and
+// per-target "healing received" tracking (death recap).
 export interface SpellHealAmountEvent {
   casterGuid: string
   casterName: string
+  targetGuid?: string
+  targetName?: string
+  spellId?: number
+  spellName?: string
   amount: number
   timestamp: Date
 }
@@ -751,13 +756,26 @@ export class CombatLogParser extends EventEmitter {
     const casterGuid = fields[SPELL_FIELD_CASTER_GUID]
     const casterName = fields[SPELL_FIELD_CASTER_NAME]
     const targetGuid = fields[SPELL_FIELD_TARGET_GUID]
+    const targetName = fields[SPELL_FIELD_TARGET_NAME]
+    const spellId = parseInt(fields[SPELL_FIELD_SPELL_ID] ?? '', 10)
+    const spellName = fields[SPELL_FIELD_SPELL_NAME]
     if (casterGuid === undefined || casterName === undefined) return
 
     // Emit heal amount event for ALL heals (including self) — used for team heal charts
+    // and per-target healing-received tracking (death recap).
     const rawAmount = fields[SPELL_SUFFIX_AMOUNT]
     const amount = parseInt(rawAmount ?? '0', 10)
     if (!isNaN(amount) && amount > 0) {
-      this.emit('spellHealAmount', { casterGuid, casterName, amount, timestamp })
+      this.emit('spellHealAmount', {
+        casterGuid,
+        casterName,
+        targetGuid,
+        targetName,
+        spellId: isNaN(spellId) ? undefined : spellId,
+        spellName,
+        amount,
+        timestamp
+      })
     }
 
     // Only count heals cast on OTHER players for healer detection — self-heals from

@@ -3,18 +3,24 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import type { Recording, TimelineEventType } from '@shared/ipc.types'
 import { usePlayerStore } from '@/stores/playerStore'
+import { useStatsLinkStore } from '@/stores/statsLinkStore'
 import { usePlayer } from '@/composables/usePlayer'
 import TimelineCanvas from './TimelineCanvas.vue'
 import MeterWidget from './MeterWidget.vue'
+import CooldownTimeline from './CooldownTimeline.vue'
 import { TIMELINE_COLORS, SPELL_CLASS_MAP, SPELL_SPEC_MAP, HEALER_SPEC_BY_CLASS } from '@shared/constants'
 import { toFileUrl } from '@/utils/fileUrl'
+import { buildCharacterStatsUrl } from '@/utils/characterLinks'
 import { computeScoreboard } from '@/composables/useScoreboard'
 import { computeMeter } from '@/composables/useMeters'
+import { computeCooldownRows } from '@/composables/useCooldownRows'
 
 const props = defineProps<{ recording: Recording }>()
 
 const playerStore = usePlayerStore()
 const { currentTime, duration } = storeToRefs(playerStore)
+const statsLinkStore = useStatsLinkStore()
+const { statsSite, wowRegion } = storeToRefs(statsLinkStore)
 
 function fmtSecs(seconds: number): string {
   const m = Math.floor(seconds / 60)
@@ -40,23 +46,9 @@ function selectSpeed(rate: number): void {
   setPlaybackRate(rate)
 }
 
-function checkPvpUrl(fullName: string): string {
-  const parts = fullName.split('-')
-  const regionCodes = new Set(['EU', 'US', 'KR', 'TW', 'CN', 'OCE'])
-  const last = parts[parts.length - 1] ?? ''
-  if (regionCodes.has(last.toUpperCase()) && parts.length >= 3) {
-    const region = last.toLowerCase()
-    const realm = parts[parts.length - 2] ?? ''
-    const character = parts.slice(0, -2).join('-')
-    return `https://check-pvp.fr/${region}/${realm}/${character}`
-  }
-  const realm = last
-  const character = parts.slice(0, -1).join('-')
-  return `https://check-pvp.fr/eu/${realm}/${character}`
-}
-
 function openPlayer(name: string): void {
-  void window.electron.invoke('system:openUrl', { url: checkPvpUrl(name) })
+  const url = buildCharacterStatsUrl(statsSite.value, name, wowRegion.value)
+  void window.electron.invoke('system:openUrl', { url })
 }
 
 const videoSrc = computed(() => toFileUrl(props.recording.videoPath))
@@ -319,6 +311,20 @@ const showScoreboard = ref(false)
 const scoreboardRows = computed(() =>
   computeScoreboard(props.recording.metadata.events, props.recording.metadata.duration)
 )
+
+// -------------------------------------------------------------------------
+// Cooldown timeline — per-player trinket/defensive/offensive CD usage
+// -------------------------------------------------------------------------
+const showCooldowns = ref(false)
+
+const cooldownRows = computed(() =>
+  computeCooldownRows(props.recording.metadata.events, derivedTeams.value.playerTeam, derivedTeams.value.enemyTeam)
+)
+
+// -------------------------------------------------------------------------
+// Events
+// -------------------------------------------------------------------------
+const showEvents = ref(false)
 
 // -------------------------------------------------------------------------
 // Graphs
@@ -762,6 +768,28 @@ function playerRating(name: string): number | undefined {
         </div>
       </div>
 
+      <!-- Cooldown timeline (collapsible) -->
+      <div v-if="cooldownRows.length > 0">
+        <button
+          class="flex items-center gap-2 text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 hover:text-zinc-300 w-full text-left"
+          @click="showCooldowns = !showCooldowns"
+        >
+          <span>Cooldowns</span>
+          <span class="text-zinc-600">{{ showCooldowns ? '▲' : '▼' }}</span>
+        </button>
+        <div
+          v-if="showCooldowns"
+          class="bg-zinc-900 rounded-lg p-3"
+        >
+          <CooldownTimeline
+            :rows="cooldownRows"
+            :duration="recording.metadata.duration"
+            :player-color="playerColor"
+            @seek="handleSeek"
+          />
+        </div>
+      </div>
+
       <!-- Graphs (collapsible) -->
       <div v-if="hasDmgData || hasHealData">
         <button
@@ -853,12 +881,20 @@ function playerRating(name: string): number | undefined {
         </div>
       </div>
 
-      <!-- Events -->
+      <!-- Events (collapsible) -->
       <div>
-        <p class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
-          Events
-        </p>
-        <div class="space-y-0.5">
+        <button
+          class="flex items-center gap-2 text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 hover:text-zinc-300 w-full text-left"
+          @click="showEvents = !showEvents"
+        >
+          <span>Events</span>
+          <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-800 text-zinc-400 leading-none">{{ visibleEvents.length }}</span>
+          <span class="text-zinc-600">{{ showEvents ? '▲' : '▼' }}</span>
+        </button>
+        <div
+          v-if="showEvents"
+          class="space-y-0.5"
+        >
           <div
             v-for="(ev, i) in visibleEvents"
             :key="i"
@@ -946,26 +982,76 @@ function playerRating(name: string): number | undefined {
               >({{ ev.interruptedSpell }})</span>
             </div>
 
-            <!-- Death Summary — last 3 seconds of incoming damage -->
+            <!-- Death Recap — last 10 seconds of damage / healing / CC / defensives used -->
             <div
-              v-if="(ev.type === 'death-player' || ev.type === 'death-enemy') && ev.deathSummary && ev.deathSummary.length > 0"
-              class="mt-1 ml-12 border-l border-zinc-700 pl-2 pb-0.5"
+              v-if="ev.type === 'death-player' || ev.type === 'death-enemy'"
+              class="mt-1 ml-12 border-l border-zinc-700 pl-2 pb-0.5 space-y-1"
             >
-              <p class="text-[10px] text-zinc-500 mb-0.5">
-                Last 3s incoming damage:
-              </p>
-              <div
-                v-for="(hit, hi) in ev.deathSummary"
-                :key="hi"
-                class="flex items-center gap-1.5 text-[10px] text-zinc-400"
-              >
-                <span class="tabular-nums text-zinc-600 w-8 flex-shrink-0">{{ hit.relSecs.toFixed(1) }}s</span>
-                <span
-                  v-if="hit.hpPct !== undefined"
-                  class="tabular-nums text-zinc-500 flex-shrink-0"
-                >({{ hit.hpPct }}%)</span>
-                <span class="truncate">{{ hit.spellName }}</span>
-                <span class="ml-auto text-red-400 tabular-nums flex-shrink-0">{{ hit.amount.toLocaleString() }}</span>
+              <div v-if="ev.deathSummary && ev.deathSummary.length > 0">
+                <p class="text-[10px] text-zinc-500 mb-0.5">
+                  Last 10s incoming damage:
+                </p>
+                <div
+                  v-for="(hit, hi) in ev.deathSummary"
+                  :key="`dmg-${hi}`"
+                  class="flex items-center gap-1.5 text-[10px] text-zinc-400"
+                >
+                  <span class="tabular-nums text-zinc-600 w-8 flex-shrink-0">{{ hit.relSecs.toFixed(1) }}s</span>
+                  <span
+                    v-if="hit.hpPct !== undefined"
+                    class="tabular-nums text-zinc-500 flex-shrink-0"
+                  >({{ hit.hpPct }}%)</span>
+                  <span class="truncate">{{ hit.spellName }}</span>
+                  <span class="ml-auto text-red-400 tabular-nums flex-shrink-0">{{ hit.amount.toLocaleString() }}</span>
+                </div>
+              </div>
+
+              <div v-if="ev.deathHealing && ev.deathHealing.length > 0">
+                <p class="text-[10px] text-zinc-500 mb-0.5">
+                  Last 10s healing received:
+                </p>
+                <div
+                  v-for="(hit, hi) in ev.deathHealing"
+                  :key="`heal-${hi}`"
+                  class="flex items-center gap-1.5 text-[10px] text-zinc-400"
+                >
+                  <span class="tabular-nums text-zinc-600 w-8 flex-shrink-0">{{ hit.relSecs.toFixed(1) }}s</span>
+                  <span class="truncate">{{ hit.spellName }}</span>
+                  <span class="ml-auto text-green-400 tabular-nums flex-shrink-0">{{ hit.amount.toLocaleString() }}</span>
+                </div>
+              </div>
+
+              <div v-if="ev.deathCCTaken && ev.deathCCTaken.length > 0">
+                <p class="text-[10px] text-zinc-500 mb-0.5">
+                  CC taken:
+                </p>
+                <div
+                  v-for="(cc, ci) in ev.deathCCTaken"
+                  :key="`cc-${ci}`"
+                  class="flex items-center gap-1.5 text-[10px] text-zinc-400"
+                >
+                  <span class="tabular-nums text-zinc-600 w-8 flex-shrink-0">{{ cc.relSecs.toFixed(1) }}s</span>
+                  <span class="truncate">{{ cc.spellName }}</span>
+                  <span
+                    v-if="cc.casterName"
+                    class="ml-auto truncate flex-shrink-0"
+                    :style="{ color: playerColor(cc.casterName) }"
+                  >{{ cc.casterName }}</span>
+                </div>
+              </div>
+
+              <div v-if="ev.deathDefensivesUsed && ev.deathDefensivesUsed.length > 0">
+                <p class="text-[10px] text-zinc-500 mb-0.5">
+                  Defensives used:
+                </p>
+                <div
+                  v-for="(def, di) in ev.deathDefensivesUsed"
+                  :key="`def-${di}`"
+                  class="flex items-center gap-1.5 text-[10px] text-zinc-400"
+                >
+                  <span class="tabular-nums text-zinc-600 w-8 flex-shrink-0">{{ def.relSecs.toFixed(1) }}s</span>
+                  <span class="truncate">{{ def.spellName }}</span>
+                </div>
               </div>
             </div>
           </div>

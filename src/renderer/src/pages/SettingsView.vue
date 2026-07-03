@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useSettings } from '@/composables/useSettings'
+import { STATS_SITES, STATS_SITE_LABELS } from '@/utils/characterLinks'
 
 const emit = defineEmits<{ close: [] }>()
 
@@ -19,6 +20,8 @@ const {
   cleanupGbEnabled,
   cleanupGb,
   minimizeToTray,
+  statsSite,
+  wowRegion,
   pickWowPath,
   pickStoragePath,
   setFps,
@@ -521,6 +524,65 @@ const BITRATE_PRESETS = [
         <p class="text-xs text-zinc-600 mt-3">
           Auto-cleanup runs when the app starts and after each recording is processed.
         </p>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <!-- Character Stats                                                   -->
+      <!-- ---------------------------------------------------------------- -->
+      <section class="px-4 py-4 border-b border-zinc-800/60">
+        <h3 class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">
+          Character Stats
+        </h3>
+
+        <!-- Region -->
+        <div class="mb-4">
+          <p class="text-xs text-zinc-400 mb-2">
+            Region
+          </p>
+          <div class="flex gap-2">
+            <button
+              v-for="region in ['eu', 'us'] as const"
+              :key="region"
+              class="px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors uppercase"
+              :class="
+                wowRegion === region
+                  ? 'bg-blue-600 border-blue-500 text-white'
+                  : 'bg-zinc-900 border-zinc-700 text-zinc-300 hover:border-zinc-500'
+              "
+              @click="wowRegion = region"
+            >
+              {{ region }}
+            </button>
+          </div>
+          <p class="text-xs text-zinc-600 mt-1.5">
+            Used to resolve a character's realm when the combat log doesn't include a region suffix.
+          </p>
+        </div>
+
+        <!-- Default stats site -->
+        <div>
+          <p class="text-xs text-zinc-400 mb-2">
+            Open player stats on
+          </p>
+          <div class="flex gap-2 flex-wrap">
+            <button
+              v-for="site in STATS_SITES"
+              :key="site"
+              class="px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors"
+              :class="
+                statsSite === site
+                  ? 'bg-blue-600 border-blue-500 text-white'
+                  : 'bg-zinc-900 border-zinc-700 text-zinc-300 hover:border-zinc-500'
+              "
+              @click="statsSite = site"
+            >
+              {{ STATS_SITE_LABELS[site] }}
+            </button>
+          </div>
+          <p class="text-xs text-zinc-600 mt-1.5">
+            Clicking a player name in the match view or My PVP Hub opens their stats here.
+          </p>
+        </div>
       </section>
 
       <!-- ---------------------------------------------------------------- -->

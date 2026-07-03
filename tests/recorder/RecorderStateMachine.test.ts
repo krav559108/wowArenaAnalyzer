@@ -1185,6 +1185,122 @@ describe('RecorderStateMachine — death analysis: unusedDefensives', () => {
   })
 })
 
+describe('RecorderStateMachine — death recap: damage/healing/CC/defensives window', () => {
+  let watcher: FakeWatcher
+  let recorder: FakeRecorder
+  let machine: RecorderStateMachine
+
+  const MATCH_START_TS = new Date('2026-04-15T20:00:15Z')
+
+  beforeEach(() => {
+    watcher = new FakeWatcher()
+    recorder = new FakeRecorder()
+    machine = buildMachine(watcher, recorder)
+  })
+
+  async function startMatch(): Promise<void> {
+    watcher.fireParser('arenaZoneEntered', zoneEntered)
+    await flushPromises()
+    watcher.fireParser('arenaMatchStart', { ...matchStart2v2, timestamp: MATCH_START_TS })
+  }
+
+  it('collects damage, healing, CC, and defensives from the last 10s before death', async () => {
+    await startMatch()
+
+    // Damage taken at T+52s (8s before death)
+    watcher.fireParser('spellDamage', {
+      casterGuid: 'Player-Enemy',
+      casterName: 'EnemyWarr-Realm',
+      casterFlags: UNIT_FLAG_REACTION_HOSTILE,
+      targetGuid: 'Player-A',
+      targetName: 'Frostmage-Stormrage',
+      spellId: 100,
+      spellName: 'Mortal Strike',
+      amount: 40000,
+      timestamp: new Date(MATCH_START_TS.getTime() + 52_000)
+    })
+
+    // Healing received at T+55s (5s before death)
+    watcher.fireParser('spellHealAmount', {
+      casterGuid: 'Player-Healer',
+      casterName: 'HolyPriest-Realm',
+      targetGuid: 'Player-A',
+      targetName: 'Frostmage-Stormrage',
+      spellId: 200,
+      spellName: 'Flash Heal',
+      amount: 15000,
+      timestamp: new Date(MATCH_START_TS.getTime() + 55_000)
+    })
+
+    // CC applied to the dying player at T+53s
+    watcher.fireParser('spellCast', {
+      casterGuid: 'Player-Enemy2',
+      casterName: 'EnemyRogue-Realm',
+      targetGuid: 'Player-A',
+      targetName: 'Frostmage-Stormrage',
+      targetFlags: 0x511,
+      spellId: 408, // Kidney Shot
+      spellName: 'Kidney Shot',
+      eventCategory: 'cc',
+      timestamp: new Date(MATCH_START_TS.getTime() + 53_000)
+    })
+
+    // Defensive used by the dying player at T+54s
+    watcher.fireParser('spellCast', {
+      casterGuid: 'Player-A',
+      casterName: 'Frostmage-Stormrage',
+      targetGuid: 'Player-A',
+      targetName: 'Frostmage-Stormrage',
+      targetFlags: 0x511,
+      spellId: 45438, // Ice Block
+      spellName: 'Ice Block',
+      eventCategory: 'defensive',
+      timestamp: new Date(MATCH_START_TS.getTime() + 54_000)
+    })
+
+    // Damage taken at T+30s (30s before death) — outside the 10s window, should be excluded
+    watcher.fireParser('spellDamage', {
+      casterGuid: 'Player-Enemy',
+      casterName: 'EnemyWarr-Realm',
+      casterFlags: UNIT_FLAG_REACTION_HOSTILE,
+      targetGuid: 'Player-A',
+      targetName: 'Frostmage-Stormrage',
+      spellId: 101,
+      spellName: 'Slam',
+      amount: 5000,
+      timestamp: new Date(MATCH_START_TS.getTime() + 30_000)
+    })
+
+    watcher.fireParser('unitDied', {
+      unitGuid: 'Player-A',
+      unitName: 'Frostmage-Stormrage',
+      destFlags: 0x511,
+      timestamp: new Date(MATCH_START_TS.getTime() + 60_000)
+    })
+
+    const events: ProcessingRequiredEvent[] = []
+    machine.on('processingRequired', (e) => events.push(e))
+    watcher.fireParser('arenaMatchEnd', matchEnd)
+    await flushPromises()
+
+    const deathEv = events[0].timeline.find((e) => e.type === 'death-player')!
+
+    expect(deathEv.deathSummary).toHaveLength(1)
+    expect(deathEv.deathSummary![0]!.spellName).toBe('Mortal Strike')
+
+    expect(deathEv.deathHealing).toHaveLength(1)
+    expect(deathEv.deathHealing![0]!.spellName).toBe('Flash Heal')
+    expect(deathEv.deathHealing![0]!.amount).toBe(15000)
+
+    expect(deathEv.deathCCTaken).toHaveLength(1)
+    expect(deathEv.deathCCTaken![0]!.spellName).toBe('Kidney Shot')
+    expect(deathEv.deathCCTaken![0]!.casterName).toBe('EnemyRogue-Realm')
+
+    expect(deathEv.deathDefensivesUsed).toHaveLength(1)
+    expect(deathEv.deathDefensivesUsed![0]!.spellName).toBe('Ice Block')
+  })
+})
+
 describe('RecorderStateMachine — error handling', () => {
   let watcher: FakeWatcher
   let recorder: FakeRecorder

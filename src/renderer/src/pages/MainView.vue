@@ -3,12 +3,15 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useAppStore } from '@/stores/appStore'
 import { useRecordingsStore } from '@/stores/recordingsStore'
+import { useStatsLinkStore } from '@/stores/statsLinkStore'
 import { useMainView } from '@/composables/useMainView'
 import RecordingList from '@/components/RecordingList.vue'
 import VideoPlayer from '@/components/VideoPlayer.vue'
 import SettingsView from '@/pages/SettingsView.vue'
+import PvpHubView from '@/pages/PvpHubView.vue'
 const appStore = useAppStore()
 const recordingsStore = useRecordingsStore()
+const statsLinkStore = useStatsLinkStore()
 
 const { status, currentZone, lastError, recordingStartedAt } = storeToRefs(appStore)
 const { selected } = storeToRefs(recordingsStore)
@@ -16,7 +19,7 @@ const { selected } = storeToRefs(recordingsStore)
 const { deleteRecording, deleteGroup, openFolder } = useMainView()
 
 const settingsOpen = ref(false)
-const activeTab = ref<'2v2' | '3v3' | 'solo-shuffle' | 'skirmish'>('2v2')
+const activeTab = ref<'2v2' | '3v3' | 'solo-shuffle' | 'skirmish' | 'hub'>('2v2')
 
 // -------------------------------------------------------------------------
 // Live recording elapsed-time indicator — ticks once per second while
@@ -107,6 +110,7 @@ async function openSystemPreferences(): Promise<void> {
 onMounted(() => {
   void refreshAddonStatus()
   void checkScreenPermission()
+  void statsLinkStore.load()
   // Push updates from main process whenever WoW writes SavedVariables
   unsubAddon = window.electron.on('addon:statusChanged', applyAddonStatus)
   // Slow fallback poll in case the file was already current on mount
@@ -318,10 +322,33 @@ const statusTextClass = computed(() => {
             :class="activeTab === tab.key ? 'bg-zinc-600 text-zinc-300' : 'bg-zinc-800 text-zinc-600'"
           >{{ bracketCount(tab.key) }}</span>
         </button>
+
+        <!-- Divider -->
+        <span class="w-px h-4 bg-zinc-800 mx-1" />
+
+        <!-- My PVP Hub tab -->
+        <button
+          class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors border-b-2"
+          :class="activeTab === 'hub'
+            ? 'text-zinc-200 border-zinc-400'
+            : 'text-zinc-500 border-transparent hover:text-zinc-300'"
+          @click="activeTab = 'hub'"
+        >
+          My PVP Hub
+        </button>
       </div>
 
       <!-- Tab content (offset for tab bar height ~33px) -->
-      <div class="flex flex-1 min-h-0 mt-[33px] w-full">
+      <div
+        v-if="activeTab === 'hub'"
+        class="flex flex-1 min-h-0 mt-[33px] w-full"
+      >
+        <PvpHubView :recordings="recordings" />
+      </div>
+      <div
+        v-else
+        class="flex flex-1 min-h-0 mt-[33px] w-full"
+      >
         <!-- Sidebar -->
         <aside class="flex-shrink-0 w-72 border-r border-zinc-800/60 flex flex-col overflow-hidden">
           <RecordingList

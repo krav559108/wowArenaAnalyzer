@@ -4,7 +4,8 @@
 // an app restart to take effect in the recording pipeline.
 
 import { ref, computed, onMounted } from 'vue'
-import type { AppConfig, CaptureSource } from '@shared/ipc.types'
+import type { AppConfig, CaptureSource, StatsSite, WowRegion } from '@shared/ipc.types'
+import { useStatsLinkStore } from '@/stores/statsLinkStore'
 
 export type BitratePreset = 'low' | 'medium' | 'high' | 'custom'
 
@@ -22,6 +23,7 @@ function detectPreset(bitrate: number): BitratePreset {
 }
 
 export function useSettings() {
+  const statsLinkStore = useStatsLinkStore()
   const config = ref<AppConfig | null>(null)
   const loading = ref(true)
   const platform = ref('darwin')
@@ -189,6 +191,28 @@ export function useSettings() {
   })
 
   // -------------------------------------------------------------------------
+  // Character stats site + region
+  // -------------------------------------------------------------------------
+
+  const statsSite = computed<StatsSite>({
+    get: () => config.value?.statsSite ?? 'checkpvp',
+    set: (site) => {
+      if (config.value === null) return
+      void set('statsSite', site)
+      statsLinkStore.setStatsSite(site)
+    },
+  })
+
+  const wowRegion = computed<WowRegion>({
+    get: () => config.value?.wowRegion ?? 'eu',
+    set: (region) => {
+      if (config.value === null) return
+      void set('wowRegion', region)
+      statsLinkStore.setWowRegion(region)
+    },
+  })
+
+  // -------------------------------------------------------------------------
   // Relaunch
   // -------------------------------------------------------------------------
 
@@ -226,6 +250,8 @@ export function useSettings() {
     cleanupGbEnabled,
     cleanupGb,
     minimizeToTray,
+    statsSite,
+    wowRegion,
     pickWowPath,
     pickStoragePath,
     setFps,

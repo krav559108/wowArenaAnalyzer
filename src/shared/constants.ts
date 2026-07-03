@@ -67,6 +67,13 @@ export const BRACKET_FIELD_MAP: Readonly<Record<string, import('./ipc.types').Ar
 export const SOLO_SHUFFLE_ROUNDS_PER_SESSION = 6
 
 // ---------------------------------------------------------------------------
+// Death recap
+// ---------------------------------------------------------------------------
+
+// How far back from a death to collect damage/healing/CC/defensive-usage context.
+export const DEATH_RECAP_WINDOW_SECS = 10
+
+// ---------------------------------------------------------------------------
 // Timeline event colours for canvas rendering
 // ---------------------------------------------------------------------------
 
@@ -948,3 +955,25 @@ export const DEFAULT_CAPTURE_SOURCE_HINT = 'auto'
 export const DEFAULT_VIDEO_RESOLUTION = 'native'
 export const DEFAULT_MINIMIZE_TO_TRAY = true
 export const ADDON_RELATIVE_PATH = '_retail_/Interface/AddOns/ArenaRecorderCompanion'
+export const DEFAULT_STATS_SITE: import('./ipc.types').StatsSite = 'checkpvp'
+export const DEFAULT_WOW_REGION: import('./ipc.types').WowRegion = 'eu'
+
+// ---------------------------------------------------------------------------
+// Class colours (WoW official palette)
+// ---------------------------------------------------------------------------
+
+export const CLASS_COLORS: Readonly<Record<string, string>> = {
+  'Death Knight': '#C41E3A',
+  'Demon Hunter': '#A330C9',
+  'Druid': '#FF7C0A',
+  'Evoker': '#33937F',
+  'Hunter': '#AAD372',
+  'Mage': '#3FC7EB',
+  'Monk': '#00FF98',
+  'Paladin': '#F48CBA',
+  'Priest': '#FFFFFF',
+  'Rogue': '#FFF468',
+  'Shaman': '#0070DD',
+  'Warlock': '#8788EE',
+  'Warrior': '#C69B3A',
+}

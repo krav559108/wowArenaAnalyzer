@@ -24,7 +24,9 @@ import {
   DEFAULT_VIDEO_FPS,
   DEFAULT_CAPTURE_SOURCE_HINT,
   DEFAULT_VIDEO_RESOLUTION,
-  DEFAULT_MINIMIZE_TO_TRAY
+  DEFAULT_MINIMIZE_TO_TRAY,
+  DEFAULT_STATS_SITE,
+  DEFAULT_WOW_REGION
 } from '@shared/constants'
 
 // ---------------------------------------------------------------------------
@@ -46,7 +48,9 @@ const configStore = new Store<AppConfig>({
     autoCleanupDays: null,
     autoCleanupMaxGb: null,
     minimizeToTray: DEFAULT_MINIMIZE_TO_TRAY,
-    onboardingComplete: false
+    onboardingComplete: false,
+    statsSite: DEFAULT_STATS_SITE,
+    wowRegion: DEFAULT_WOW_REGION
   }
 })
 

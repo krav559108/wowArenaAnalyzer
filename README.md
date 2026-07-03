@@ -30,17 +30,17 @@ Go to the [Releases](../../releases) page and download:
 
 ### macOS
 1. Open the `.dmg` and drag **WoW Arena Recorder** into `/Applications`
-2. The app is not signed with an Apple Developer certificate, so macOS will block it on first launch. Remove the quarantine flag by running this command in Terminal:
+2. There is no Apple Developer profile behind this build, so macOS will block it on first launch. Before opening the app for the first time, remove the quarantine flag by running this command in Terminal:
    ```bash
-   xattr -cr "/Applications/WoW Arena Recorder.app"
+   sudo xattr -cr "/Applications/WoW Arena Recorder.app"
    ```
 3. After that, double-click the app normally — macOS will open it without warnings
 
 > ⚠️ **Every time you update the app you must re-grant Screen Recording permission:**
 > 1. Open **System Settings → Privacy & Security → Screen Recording**
-> 2. Find **WoW Arena Recorder** and click the **–** button to remove it
-> 3. Click **+**, navigate to `/Applications`, and add **WoW Arena Recorder** again
-> 4. Relaunch the app
+> 2. Find **WoW Arena Recorder** in the list and click the **–** (minus) button to remove it entirely — do **not** just flip its toggle off, that's not enough
+> 3. Quit and relaunch the app
+> 4. The app will re-add itself to the list — **now** flip its toggle **on** to grant permission
 >
 > This is required because macOS ties the permission to the app's code signature, which changes with every new build.
 

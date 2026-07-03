@@ -36,6 +36,14 @@ export interface DeathHit {
   hpPct?: number
 }
 
+// A CC or defensive/trinket cast in the run-up to a death (no damage amount).
+export interface DeathCastEvent {
+  spellId?: number
+  spellName: string
+  relSecs: number  // seconds before death (0 = at death moment, negative = before)
+  casterName?: string  // set for CC applied by someone else; omitted for own defensives
+}
+
 export interface TimelineEvent {
   timestamp: number // seconds from recording start
   type: TimelineEventType
@@ -50,7 +58,10 @@ export interface TimelineEvent {
   unusedDefensives?: string[]  // defensives that were off cooldown at time of death (local player only)
   isMistake?: boolean   // flagged as a mistake (e.g. DR-immune CC, bad interrupt)
   mistakeReason?: string // human-readable reason, e.g. "DR immune", "Bad interrupt"
-  deathSummary?: DeathHit[]  // last 3 seconds of incoming damage (death events only)
+  deathSummary?: DeathHit[]  // last 10 seconds of incoming damage (death events only)
+  deathHealing?: DeathHit[]  // last 10 seconds of healing received (death events only)
+  deathCCTaken?: DeathCastEvent[]  // CC applied to the dying player in the last 10 seconds
+  deathDefensivesUsed?: DeathCastEvent[]  // defensives/trinket the dying player used in the last 10 seconds
   // Interrupt-specific: undefined = unknown, true = interrupted a spell, false = hit on immune (Precognition)
   isSuccessful?: boolean
   // Name of the spell that was interrupted (successful interrupts only)
@@ -241,6 +252,14 @@ export interface IpcEvents {
   'addon:statusChanged': { connected: boolean; name?: string; spec?: string; className?: string }
 }
 
+// External character-stats site used for the "view my stats" links in the Team panel
+// and the My PVP Hub "Your Characters" list.
+export type StatsSite = 'arenacoach' | 'seramate' | 'checkpvp' | 'drustvar' | 'armory'
+
+// WoW region — used to resolve a character's realm when the combat log name has no
+// region suffix (same-region names log as "Name-Realm", not "Name-Realm-EU").
+export type WowRegion = 'eu' | 'us'
+
 // ---------------------------------------------------------------------------
 // App configuration stored in electron-store
 // ---------------------------------------------------------------------------
@@ -258,6 +277,8 @@ export interface AppConfig {
   autoCleanupMaxGb: number | null // null = disabled
   minimizeToTray: boolean
   onboardingComplete: boolean
+  statsSite: StatsSite
+  wowRegion: WowRegion
 }
 
 export interface CaptureSource {
