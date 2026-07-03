@@ -5,8 +5,11 @@ import type { Recording, TimelineEventType } from '@shared/ipc.types'
 import { usePlayerStore } from '@/stores/playerStore'
 import { usePlayer } from '@/composables/usePlayer'
 import TimelineCanvas from './TimelineCanvas.vue'
+import MeterWidget from './MeterWidget.vue'
 import { TIMELINE_COLORS, SPELL_CLASS_MAP, SPELL_SPEC_MAP, HEALER_SPEC_BY_CLASS } from '@shared/constants'
 import { toFileUrl } from '@/utils/fileUrl'
+import { computeScoreboard } from '@/composables/useScoreboard'
+import { computeMeter } from '@/composables/useMeters'
 
 const props = defineProps<{ recording: Recording }>()
 
@@ -129,6 +132,18 @@ const derivedTeams = computed(() => {
 
 function handleSeek(time: number): void {
   seekTo(Math.max(0, time - 2))
+}
+
+// -------------------------------------------------------------------------
+// Mistakes
+// -------------------------------------------------------------------------
+const showMistakes = ref(false)
+const mistakes = computed(() => props.recording.metadata.mistakes ?? [])
+
+const SEVERITY_CLASSES: Record<string, string> = {
+  HIGH: 'bg-red-900/60 text-red-300 border-red-800/60',
+  MEDIUM: 'bg-amber-900/50 text-amber-300 border-amber-800/50',
+  LOW: 'bg-zinc-800 text-zinc-400 border-zinc-700'
 }
 
 const EVENT_TYPE_LABEL: Record<string, string> = {
@@ -277,6 +292,33 @@ function onKeydown(e: KeyboardEvent): void {
 
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+
+// -------------------------------------------------------------------------
+// Meters — Details!/Skada-style per-player Damage Done / Damage Taken / Healing Done
+// -------------------------------------------------------------------------
+const showMeters = ref(true)
+
+const dmgDoneMeter = computed(() =>
+  computeMeter(props.recording.metadata.playerDamageDone, props.recording.metadata.duration)
+)
+const dmgTakenMeter = computed(() =>
+  computeMeter(props.recording.metadata.playerDamageTaken, props.recording.metadata.duration)
+)
+const healDoneMeter = computed(() =>
+  computeMeter(props.recording.metadata.playerHealingDone, props.recording.metadata.duration)
+)
+const hasMeterData = computed(
+  () => dmgDoneMeter.value.length > 0 || dmgTakenMeter.value.length > 0 || healDoneMeter.value.length > 0
+)
+
+// -------------------------------------------------------------------------
+// Scoreboard / CC table
+// -------------------------------------------------------------------------
+const showScoreboard = ref(false)
+
+const scoreboardRows = computed(() =>
+  computeScoreboard(props.recording.metadata.events, props.recording.metadata.duration)
+)
 
 // -------------------------------------------------------------------------
 // Graphs
@@ -568,6 +610,155 @@ function playerRating(name: string): number | undefined {
           >
             —
           </p>
+        </div>
+      </div>
+
+      <!-- Mistakes (collapsible) -->
+      <div v-if="mistakes.length > 0">
+        <button
+          class="flex items-center gap-2 text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 hover:text-zinc-300 w-full text-left"
+          @click="showMistakes = !showMistakes"
+        >
+          <span>Mistakes</span>
+          <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-800 text-zinc-400 leading-none">{{ mistakes.length }}</span>
+          <span class="text-zinc-600">{{ showMistakes ? '▲' : '▼' }}</span>
+        </button>
+        <div
+          v-if="showMistakes"
+          class="space-y-1.5"
+        >
+          <button
+            v-for="(m, i) in mistakes"
+            :key="i"
+            class="w-full flex items-start gap-2 text-left bg-zinc-900 hover:bg-zinc-800/80 rounded-lg p-2.5 transition-colors"
+            @click="handleSeek(m.timestamp)"
+          >
+            <span
+              class="text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none border flex-shrink-0 mt-0.5"
+              :class="SEVERITY_CLASSES[m.severity]"
+            >{{ m.severity }}</span>
+            <div class="flex-1 min-w-0">
+              <p class="text-xs text-zinc-200 font-medium">
+                {{ m.title }}<span
+                  v-if="m.targetName"
+                  class="text-zinc-500 font-normal"
+                > · {{ m.targetName }}</span>
+              </p>
+              <p class="text-xs text-zinc-500 mt-0.5">
+                {{ m.tip }}
+              </p>
+            </div>
+            <span class="text-[10px] text-zinc-600 flex-shrink-0 mt-0.5">{{ fmtSecs(m.timestamp) }}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Meters — Details!/Skada-style Damage Done / Damage Taken / Healing Done -->
+      <div v-if="hasMeterData">
+        <button
+          class="flex items-center gap-2 text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 hover:text-zinc-300 w-full text-left"
+          @click="showMeters = !showMeters"
+        >
+          <span>Meters</span>
+          <span class="text-zinc-600">{{ showMeters ? '▲' : '▼' }}</span>
+        </button>
+        <div
+          v-if="showMeters"
+          class="space-y-2"
+        >
+          <MeterWidget
+            title="Damage Done"
+            :rows="dmgDoneMeter"
+            :format-total="fmtK"
+            rate-label="DPS"
+            :player-color="playerColor"
+          />
+          <MeterWidget
+            title="Damage Taken"
+            :rows="dmgTakenMeter"
+            :format-total="fmtK"
+            rate-label="DTPS"
+            :player-color="playerColor"
+          />
+          <MeterWidget
+            title="Healing Done"
+            :rows="healDoneMeter"
+            :format-total="fmtK"
+            rate-label="HPS"
+            :player-color="playerColor"
+          />
+        </div>
+      </div>
+
+      <!-- Scoreboard / CC table (collapsible) -->
+      <div v-if="scoreboardRows.length > 0">
+        <button
+          class="flex items-center gap-2 text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 hover:text-zinc-300 w-full text-left"
+          @click="showScoreboard = !showScoreboard"
+        >
+          <span>Scoreboard</span>
+          <span class="text-zinc-600">{{ showScoreboard ? '▲' : '▼' }}</span>
+        </button>
+        <div
+          v-if="showScoreboard"
+          class="bg-zinc-900 rounded-lg p-3 overflow-x-auto"
+        >
+          <table class="w-full text-xs border-collapse">
+            <thead>
+              <tr class="text-zinc-500 text-left">
+                <th class="pb-1.5 pr-2 font-medium">
+                  Player
+                </th>
+                <th class="pb-1.5 px-2 font-medium text-right">
+                  Kicks Taken
+                </th>
+                <th class="pb-1.5 px-2 font-medium text-right">
+                  Kicks Done
+                </th>
+                <th class="pb-1.5 px-2 font-medium text-right">
+                  CC Taken
+                </th>
+                <th class="pb-1.5 px-2 font-medium text-right">
+                  CC Done
+                </th>
+                <th class="pb-1.5 pl-2 font-medium text-right">
+                  Shielding
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="row in scoreboardRows"
+                :key="row.name"
+                class="border-t border-zinc-800/60"
+              >
+                <td class="py-1 pr-2 min-w-0">
+                  <span
+                    class="truncate block"
+                    :style="{ color: playerColor(row.name) }"
+                  >{{ row.name }}</span>
+                </td>
+                <td class="py-1 px-2 text-right text-zinc-300">
+                  {{ row.kicksTaken }}
+                  <span class="text-zinc-600">({{ row.kicksTakenPerMin.toFixed(1) }}/min)</span>
+                </td>
+                <td class="py-1 px-2 text-right text-zinc-300">
+                  {{ row.kicksDone }}
+                  <span class="text-zinc-600">({{ row.kicksDonePerMin.toFixed(1) }}/min)</span>
+                </td>
+                <td class="py-1 px-2 text-right text-zinc-300">
+                  {{ row.ccUptimeSecs.toFixed(1) }}s
+                  <span class="text-zinc-600">({{ row.ccUptimePct.toFixed(0) }}%)</span>
+                </td>
+                <td class="py-1 px-2 text-right text-zinc-300">
+                  {{ row.ccOutputSecs.toFixed(1) }}s
+                </td>
+                <td class="py-1 pl-2 text-right text-zinc-300">
+                  {{ recording.metadata.playerAbsorb?.[row.name] ? fmtK(recording.metadata.playerAbsorb[row.name]!) : '—' }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
 

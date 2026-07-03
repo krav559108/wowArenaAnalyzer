@@ -89,7 +89,7 @@ export class LogFileAnalyzer {
     parser.on('arenaMatchEnd', (e) => {
       if (current === null) return
       current.events.push({ timestamp: e.durationSecs, type: 'arena-end' })
-      matches.push(finalizeMatch(matches.length, current, e.result, e.durationSecs, healerGuids, parser.nameCache, guidToClass, guidToSpec, undefined, undefined, localPlayerGuid))
+      matches.push(finalizeMatch(matches.length, current, e.winningTeam, undefined, e.durationSecs, healerGuids, parser.nameCache, guidToClass, guidToSpec, undefined, undefined, localPlayerGuid))
       current = null
     })
 
@@ -97,7 +97,7 @@ export class LogFileAnalyzer {
       if (current === null) return
       current.sessionId = e.sessionId
       current.events.push({ timestamp: e.durationSecs, type: 'arena-end' })
-      matches.push(finalizeMatch(matches.length, current, e.result, e.durationSecs, healerGuids, parser.nameCache, guidToClass, guidToSpec, e.roundNumber, e.sessionId, localPlayerGuid))
+      matches.push(finalizeMatch(matches.length, current, undefined, e.result, e.durationSecs, healerGuids, parser.nameCache, guidToClass, guidToSpec, e.roundNumber, e.sessionId, localPlayerGuid))
       current = null
     })
 
@@ -212,7 +212,10 @@ export class LogFileAnalyzer {
 function finalizeMatch(
   index: number,
   m: InProgressMatch,
-  result: ArenaResult,
+  // Raw ARENA_MATCH_END winning team (0/1). Present for regular matches; undefined for
+  // solo shuffle rounds, which instead pass a pre-computed per-round `roundResult`.
+  winningTeam: number | undefined,
+  roundResult: ArenaResult | undefined,
   duration: number,
   healerGuids: Set<string>,
   guidToName: ReadonlyMap<string, string>,
@@ -292,6 +295,10 @@ function finalizeMatch(
     : m.localTeam
   const playerTeam: ArenaPlayerStats[] = m.combatants.filter((c) => c.team === localTeam).map(toStats)
   const enemyTeam: ArenaPlayerStats[] = m.combatants.filter((c) => c.team !== localTeam).map(toStats)
+
+  // Derive WIN/LOSS from the same corrected localTeam used for the team split above,
+  // not from ARENA_MATCH_START's unreliable field-3 "localTeam".
+  const result: ArenaResult = winningTeam !== undefined ? (winningTeam === localTeam ? 'WIN' : 'LOSS') : roundResult!
 
   // Post-process: flag CC events targeting known healers
   for (const ev of m.events) {

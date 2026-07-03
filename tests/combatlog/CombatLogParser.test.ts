@@ -68,7 +68,7 @@ describe('CombatLogParser — 2v2 arena', () => {
     expect(event.timestamp.getSeconds()).toBe(15)
   })
 
-  it('emits arenaMatchEnd with WIN result and correct duration', () => {
+  it('emits arenaMatchEnd with the raw winningTeam and correct duration', () => {
     const events: ArenaMatchEndEvent[] = []
     parser.on('arenaMatchEnd', (e) => events.push(e))
 
@@ -76,7 +76,7 @@ describe('CombatLogParser — 2v2 arena', () => {
 
     expect(events).toHaveLength(1)
     const event = events[0]!
-    expect(event.result).toBe('WIN')
+    expect(event.winningTeam).toBe(0)
     expect(event.durationSecs).toBe(180)
     expect(event.timestamp).toBeInstanceOf(Date)
   })
@@ -161,22 +161,22 @@ describe('CombatLogParser — 2v2 arena', () => {
 // LOSS result test
 // ---------------------------------------------------------------------------
 
-describe('CombatLogParser — LOSS detection', () => {
-  it('emits arenaMatchEnd with LOSS when winningTeam is 1', () => {
+describe('CombatLogParser — raw winningTeam passthrough', () => {
+  it('emits arenaMatchEnd with winningTeam=1 as-is (WIN/LOSS derivation is the caller\'s job)', () => {
     const parser = new CombatLogParser()
     const events: ArenaMatchEndEvent[] = []
     parser.on('arenaMatchEnd', (e) => events.push(e))
 
-    const lossLines = [
+    const lines = [
       '4/15/2026 20:00:00.0000  ZONE_CHANGE,1505,"Nagrand Arena",0',
       '4/15/2026 20:00:15.0000  ARENA_MATCH_START,1505,41,"2v2",0',
       '4/15/2026 20:03:15.0000  ARENA_MATCH_END,1,180'
     ]
 
-    feedLines(parser, lossLines)
+    feedLines(parser, lines)
 
     expect(events).toHaveLength(1)
-    expect(events[0]!.result).toBe('LOSS')
+    expect(events[0]!.winningTeam).toBe(1)
   })
 })
 
@@ -231,14 +231,13 @@ describe('CombatLogParser — Solo Shuffle', () => {
     expect(events).toHaveLength(1)
   })
 
-  it('arenaMatchEnd result reflects overall session outcome', () => {
+  it('arenaMatchEnd carries the raw session-level winningTeam', () => {
     const events: ArenaMatchEndEvent[] = []
     parser.on('arenaMatchEnd', (e) => events.push(e))
 
     feedLines(parser, lines)
 
-    // Fixture: localTeam=0, ARENA_MATCH_END winningTeam=0 → WIN
-    expect(events[0]!.result).toBe('WIN')
+    expect(events[0]!.winningTeam).toBe(0)
     expect(events[0]!.durationSecs).toBe(720)
   })
 
@@ -318,7 +317,7 @@ describe('CombatLogParser — sequential sessions', () => {
     expect(matchStartEvents[1]!.zoneName).toBe("Blade's Edge Arena")
 
     expect(matchEndEvents).toHaveLength(2)
-    expect(matchEndEvents[0]!.result).toBe('WIN')
-    expect(matchEndEvents[1]!.result).toBe('LOSS')
+    expect(matchEndEvents[0]!.winningTeam).toBe(0)
+    expect(matchEndEvents[1]!.winningTeam).toBe(1)
   })
 })

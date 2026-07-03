@@ -55,6 +55,23 @@ export interface TimelineEvent {
   isSuccessful?: boolean
   // Name of the spell that was interrupted (successful interrupts only)
   interruptedSpell?: string
+  // Caster's HP% at the moment of cast (defensive-type events only; requires Advanced
+  // Combat Logging — undefined when no recent UNIT_HEALTH sample is available).
+  casterHpPct?: number
+}
+
+export type MistakeSeverity = 'HIGH' | 'MEDIUM' | 'LOW'
+
+// A single post-match mistake finding (see src/main/analysis/mistakeDetector.ts).
+export interface DetectedMistake {
+  id: string
+  severity: MistakeSeverity
+  title: string
+  tip: string
+  timestamp: number
+  spellId?: number
+  spellName?: string
+  targetName?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -67,6 +84,10 @@ export interface RecordingMetadata {
   bracket: ArenaBracket
   result: ArenaResult
   duration: number // seconds
+  // Video container extension without the dot, e.g. "mp4" or "webm" — depends on which
+  // MediaRecorder mimeType WindowCaptureRecorder negotiated (mp4 preferred, webm
+  // fallback). Missing on recordings made before this field existed — treat as "mp4".
+  videoExt?: string
   playerName: string    // local player fullName (Name-Realm), empty if addon not connected
   playerClass: string
   playerSpec: string
@@ -79,6 +100,14 @@ export interface RecordingMetadata {
   rating: { before: number; after: number } | null
   // name → personal rating from COMBATANT_INFO (populated at match start)
   playerRatings?: Record<string, number>
+  // name → total damage absorbed by shields this player cast (SPELL_ABSORBED)
+  playerAbsorb?: Record<string, number>
+  // Per-player meters (Details!/Skada-style bar charts) — name → total for the match/round
+  playerDamageDone?: Record<string, number>
+  playerDamageTaken?: Record<string, number>
+  playerHealingDone?: Record<string, number>
+  // Post-match mistake analysis (see src/main/analysis/mistakeDetector.ts)
+  mistakes?: DetectedMistake[]
   // Per-second cumulative damage for line charts (index = second from match start)
   teamDmgBySecond?: number[]
   enemyDmgBySecond?: number[]
@@ -186,7 +215,7 @@ export interface IpcCommands {
   'system:installAddon': { params: { wowPath: string }; result: { success: boolean; error?: string } }
   'system:openAddonSource': { params: void; result: void }
   'system:openAddonsDir': { params: { wowPath: string }; result: void }
-  'system:listCaptureDevices': { params: void; result: CaptureDevice[] }
+  'system:listCaptureWindows': { params: void; result: CaptureSource[] }
   'system:checkWowPath': { params: { path: string }; result: { valid: boolean } }
   'system:openSystemPreferences': { params: void; result: void }
   'system:pickFolder': { params: void; result: { path: string | null } }
@@ -221,7 +250,9 @@ export interface AppConfig {
   storagePath: string
   videoBitrate: number // kbps
   videoFps: 30 | 60
-  captureDevice: string  // AVFoundation video device index, e.g. "1"
+  // desktopCapturer source name to capture, or 'auto' to auto-detect the WoW window
+  // by title. Persisted by name (not source id — ids aren't stable across restarts).
+  captureSourceHint: string
   videoResolution: string // "native" | "2560x1440" | "1920x1080" | "1280x720"
   autoCleanupDays: number | null // null = disabled
   autoCleanupMaxGb: number | null // null = disabled
@@ -229,13 +260,14 @@ export interface AppConfig {
   onboardingComplete: boolean
 }
 
-export interface CaptureDevice {
-  index: number
+export interface CaptureSource {
+  id: string
   name: string
-  isScreen: boolean
-  // Populated for screen devices: pixel dimensions and whether it's the primary display
-  resolution?: string
-  isPrimary?: boolean
+  kind: 'window' | 'screen'
+  thumbnailDataUrl?: string
+  // true if the name matches "World of Warcraft" (exact or substring) — used to badge
+  // the auto-detected source in the Settings picker.
+  isLikelyWow: boolean
 }
 
 // ---------------------------------------------------------------------------

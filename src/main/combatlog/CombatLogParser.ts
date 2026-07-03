@@ -17,7 +17,8 @@ import {
   SPELL_IDS_OFFENSIVE,
   SPELL_IDS_INTERRUPT,
   SPELL_IDS_CC_BREAK,
-  SPELL_IDS_TRINKET
+  SPELL_IDS_TRINKET,
+  SPELL_IDS_IMMUNITY
 } from '@shared/constants'
 
 // ---------------------------------------------------------------------------
@@ -75,6 +76,17 @@ const SPELL_FIELD_SPELL_NAME = 9
 const SPELL_SUFFIX_AMOUNT = 11
 // SWING_DAMAGE has no spell prefix, amount is directly at field 8
 const SWING_DAMAGE_AMOUNT = 8
+
+// ---------------------------------------------------------------------------
+// SPELL_ABSORBED field indices — verified against a real Midnight combat log.
+// Layout: attackerPrefix(4), victimPrefix(4), damagingSpellId/Name/School(3),
+//         absorbCasterPrefix(4), absorbSpellId/Name/School(3), amount, extraAmount, critical
+// e.g. "SPELL_ABSORBED,<attacker>,<victim>,88625,"Holy Word: Chastise",0x2,
+//       <shieldCaster>,1246768,"Power Word: Shield",0x2,20199,24545,nil"
+// ---------------------------------------------------------------------------
+const ABSORBED_FIELD_CASTER_GUID = 11
+const ABSORBED_FIELD_CASTER_NAME = 12
+const ABSORBED_FIELD_AMOUNT = 18
 
 // ---------------------------------------------------------------------------
 // SPELL_INTERRUPT field indices
@@ -146,7 +158,13 @@ export interface SpellAuraEvent {
 }
 
 export interface ArenaMatchEndEvent {
-  result: ArenaResult
+  // Raw team index (0 or 1) that won, straight from the log. WIN/LOSS is NOT derived
+  // here — ARENA_MATCH_START's "localTeam" field does not reliably identify which team
+  // the logging player is on (verified against real logs: it stays constant across an
+  // entire session regardless of actual per-match team assignment). Callers must resolve
+  // the player's real team from COMBATANT_INFO (which does vary correctly per match) —
+  // see RecorderStateMachine.resolveLocalTeam.
+  winningTeam: number
   durationSecs: number
   timestamp: Date
 }
@@ -213,6 +231,16 @@ export interface SpellDamageEvent {
 
 // Fired for SPELL_HEAL / SPELL_PERIODIC_HEAL — used for team healing charts
 export interface SpellHealAmountEvent {
+  casterGuid: string
+  casterName: string
+  amount: number
+  timestamp: Date
+}
+
+// Fired for SPELL_ABSORBED — damage prevented by a shield. casterGuid/casterName here is
+// the player who CAST the shield (not the attacker or the shielded victim) — used to
+// attribute "shielding done" to the shield's owner, same shape as spellHealAmount.
+export interface SpellAbsorbEvent {
   casterGuid: string
   casterName: string
   amount: number
@@ -296,6 +324,7 @@ export interface ParserEventMap {
   combatantInfo: CombatantInfoEvent
   spellDamage: SpellDamageEvent
   spellHealAmount: SpellHealAmountEvent
+  spellAbsorb: SpellAbsorbEvent
   spellInterruptSuccess: SpellInterruptSuccessEvent
   precognitionGained: PrecognitionGainedEvent
 }
@@ -419,6 +448,9 @@ export class CombatLogParser extends EventEmitter {
       case 'SWING_DAMAGE':
         this.handleSwingDamage(fields, timestamp)
         break
+      case 'SPELL_ABSORBED':
+        this.handleSpellAbsorbed(fields, timestamp)
+        break
       case 'UNIT_DIED':
         this.handleUnitDied(fields, timestamp)
         break
@@ -516,16 +548,12 @@ export class CombatLogParser extends EventEmitter {
 
     // Diagnostic: log raw fields to verify indices per Midnight patch
     console.warn('[Parser] ARENA_MATCH_END fields:', JSON.stringify(fields.slice(0, 4)))
-    console.warn(`[Parser] MATCH_END → winningTeam=${winningTeam}, durationSecs=${durationSecs}, localTeam=${this.session.localTeam}`)
-
-    // localTeam is read from ARENA_MATCH_START field 3. The logging player wins when
-    // the winning team matches their own team number.
-    const result: ArenaResult = winningTeam === this.session.localTeam ? 'WIN' : 'LOSS'
+    console.warn(`[Parser] MATCH_END → winningTeam=${winningTeam}, durationSecs=${durationSecs}`)
 
     // Midnight (12.x): ARENA_MATCH_END fires once at the end of the entire session for
     // all brackets including Solo Shuffle — emit arenaMatchEnd unconditionally.
     this.emit('arenaMatchEnd', {
-      result,
+      winningTeam,
       durationSecs,
       timestamp
     })
@@ -632,7 +660,11 @@ export class CombatLogParser extends EventEmitter {
       return
     }
 
-    if (!SPELL_IDS_CC.has(spellId)) return
+    // Previously CC-only; widened so the mistake detector can also track aura windows
+    // for defensives/immunities (RecorderStateMachine.onAuraApplied/onAuraRemoved keeps
+    // the original CC-only activeCCs/DR bookkeeping strictly gated on SPELL_IDS_CC —
+    // this widening only adds a separate, non-CC aura-window tracker there).
+    if (!SPELL_IDS_CC.has(spellId) && !SPELL_IDS_DEFENSIVE.has(spellId) && !SPELL_IDS_IMMUNITY.has(spellId)) return
 
     const casterGuid = fields[SPELL_FIELD_CASTER_GUID]
     const casterName = fields[SPELL_FIELD_CASTER_NAME] ?? ''
@@ -732,6 +764,17 @@ export class CombatLogParser extends EventEmitter {
     // DPS specs (leech, Healthstone) must not trigger healer detection.
     if (targetGuid === casterGuid) return
     this.emit('healerCast', { casterGuid, casterName, timestamp })
+  }
+
+  private handleSpellAbsorbed(fields: string[], timestamp: Date): void {
+    const casterGuid = fields[ABSORBED_FIELD_CASTER_GUID]
+    const casterName = fields[ABSORBED_FIELD_CASTER_NAME]
+    if (casterGuid === undefined || casterName === undefined) return
+
+    const amount = parseInt(fields[ABSORBED_FIELD_AMOUNT] ?? '0', 10)
+    if (isNaN(amount) || amount <= 0) return
+
+    this.emit('spellAbsorb', { casterGuid, casterName, amount, timestamp })
   }
 
   private handleSpellDamage(fields: string[], timestamp: Date): void {

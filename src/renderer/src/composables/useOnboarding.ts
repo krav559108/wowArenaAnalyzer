@@ -1,17 +1,16 @@
 // Onboarding wizard logic.
 // Encapsulates all step state and IPC calls so OnboardingView stays thin.
 //
-// Steps (0-indexed, macOS):
+// Steps (0-indexed, same on both platforms):
 //   0 — WoW folder detection and validation
 //   1 — Screen Recording permission
 //   2 — Addon
-//   3 — Homebrew + FFmpeg
-//   4 — Ready (summary + finish)
-//
-// Steps (Windows): same as above but step 4 = monitor selection, step 5 = Ready
+//   3 — Homebrew + FFmpeg (Homebrew step auto-skipped on Windows)
+//   5 — Capture window (auto-detect by default; optional manual override)
+//   6 — Ready (summary + finish)
 
 import { ref, computed } from 'vue'
-import type { CaptureDevice } from '@shared/ipc.types'
+import type { CaptureSource } from '@shared/ipc.types'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,9 +51,10 @@ export function useOnboarding() {
   // Step 3 sub-steps: on Windows skip brew (not applicable), show FFmpeg section immediately
   const showFfmpegSection = computed(() => platform.value === 'win32' || brewState.value === 'ok')
 
-  // Step 4 (Windows only) — monitor selection
-  const captureDevices = ref<CaptureDevice[]>([])
-  const selectedCaptureDevice = ref<CaptureDevice | null>(null)
+  // Step 4 — capture window (auto-detect by default on both platforms; manual
+  // override available in Settings after onboarding, see SettingsView.vue)
+  const captureSources = ref<CaptureSource[]>([])
+  const selectedCaptureSource = ref<CaptureSource | null>(null)
 
   const totalSteps = 7
   const readyStep = 6
@@ -75,9 +75,9 @@ export function useOnboarding() {
       case 4:
         return ffmpegState.value === 'ok'
       case 5:
-        // Windows: window-title capture needs no selection — always advanceable.
-        // macOS: user must select a screen device from the AVFoundation list.
-        return platform.value === 'win32' || selectedCaptureDevice.value !== null
+        // Auto-detect (the default) works without any manual selection on either
+        // platform — always advanceable. Manual override lives in Settings.
+        return true
       case 6:
         return true
       default:
@@ -238,10 +238,9 @@ export function useOnboarding() {
         }
         break
       case 5: {
-        // Load monitors and pre-select the primary display.
-        const devices = await window.electron.invoke('system:listCaptureDevices')
-        captureDevices.value = devices
-        selectedCaptureDevice.value = devices.find((d) => d.isPrimary) ?? devices[0] ?? null
+        // Load capture sources for the optional manual-override picker; auto-detect
+        // remains selected unless the user explicitly picks one here.
+        captureSources.value = await window.electron.invoke('system:listCaptureWindows')
         break
       }
       default:
@@ -264,10 +263,10 @@ export function useOnboarding() {
 
   async function complete(): Promise<void> {
     await window.electron.invoke('config:set', { key: 'wowPath', value: wowPath.value })
-    if (platform.value !== 'win32' && selectedCaptureDevice.value !== null) {
+    if (selectedCaptureSource.value !== null) {
       await window.electron.invoke('config:set', {
-        key: 'captureDevice',
-        value: String(selectedCaptureDevice.value.index)
+        key: 'captureSourceHint',
+        value: selectedCaptureSource.value.name
       })
     }
     await window.electron.invoke('config:set', { key: 'onboardingComplete', value: true })
@@ -290,8 +289,8 @@ export function useOnboarding() {
     ffmpegState,
     ffmpegPath,
     showFfmpegSection,
-    captureDevices,
-    selectedCaptureDevice,
+    captureSources,
+    selectedCaptureSource,
     canAdvance,
     // Actions
     init,

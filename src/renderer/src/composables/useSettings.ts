@@ -4,7 +4,7 @@
 // an app restart to take effect in the recording pipeline.
 
 import { ref, computed, onMounted } from 'vue'
-import type { AppConfig, CaptureDevice } from '@shared/ipc.types'
+import type { AppConfig, CaptureSource } from '@shared/ipc.types'
 
 export type BitratePreset = 'low' | 'medium' | 'high' | 'custom'
 
@@ -97,23 +97,27 @@ export function useSettings() {
   }
 
   // -------------------------------------------------------------------------
-  // Capture device
+  // Capture source (window/screen picker)
   // -------------------------------------------------------------------------
 
-  const captureDevices = ref<CaptureDevice[]>([])
-  const devicesLoading = ref(false)
+  const captureSources = ref<CaptureSource[]>([])
+  const sourcesLoading = ref(false)
 
-  async function loadCaptureDevices(): Promise<void> {
-    devicesLoading.value = true
+  async function loadCaptureSources(): Promise<void> {
+    sourcesLoading.value = true
     try {
-      captureDevices.value = await window.electron.invoke('system:listCaptureDevices')
+      captureSources.value = await window.electron.invoke('system:listCaptureWindows')
     } finally {
-      devicesLoading.value = false
+      sourcesLoading.value = false
     }
   }
 
-  async function selectCaptureDevice(device: CaptureDevice): Promise<void> {
-    await set('captureDevice', String(device.index))
+  async function selectCaptureSource(source: CaptureSource): Promise<void> {
+    await set('captureSourceHint', source.name)
+  }
+
+  async function selectAutoDetect(): Promise<void> {
+    await set('captureSourceHint', 'auto')
   }
 
   // -------------------------------------------------------------------------
@@ -192,9 +196,18 @@ export function useSettings() {
     await window.electron.invoke('system:relaunch')
   }
 
+  // Resets the onboarding flag and relaunches so the user can re-run the guided
+  // setup checklist (WoW folder, permission, addon, FFmpeg, capture window) — useful
+  // when something's misconfigured and the scattered Settings controls aren't as
+  // clear as the step-by-step wizard.
+  async function rerunSetupWizard(): Promise<void> {
+    await window.electron.invoke('config:set', { key: 'onboardingComplete', value: false })
+    await relaunch()
+  }
+
   onMounted(async () => {
     await load()
-    void loadCaptureDevices()
+    void loadCaptureSources()
     void checkAddonInstalled()
   })
 
@@ -205,8 +218,8 @@ export function useSettings() {
     restartRequired,
     bitratePreset,
     customBitrate,
-    captureDevices,
-    devicesLoading,
+    captureSources,
+    sourcesLoading,
     addonAlreadyInstalled,
     cleanupDaysEnabled,
     cleanupDays,
@@ -217,8 +230,10 @@ export function useSettings() {
     pickStoragePath,
     setFps,
     setResolution,
-    selectCaptureDevice,
+    selectCaptureSource,
+    selectAutoDetect,
     installAddon,
     relaunch,
+    rerunSetupWizard,
   }
 }

@@ -2,17 +2,18 @@
 // Channels: system:checkFfmpeg, system:checkScreenPermission, system:checkAddon,
 //           system:checkWowPath, system:openSystemPreferences, system:pickFolder
 
-import { ipcMain, shell, dialog, app, desktopCapturer, screen as electronScreen, type BrowserWindow } from 'electron'
-import { execSync, execFile } from 'child_process'
+import { ipcMain, shell, dialog, app, desktopCapturer, type BrowserWindow } from 'electron'
+import { execSync } from 'child_process'
 import { existsSync } from 'fs'
 import { cp, mkdir } from 'fs/promises'
 import { join, dirname } from 'path'
 import chokidar, { type FSWatcher } from 'chokidar'
 import type Store from 'electron-store'
-import { ScreenRecorder } from '../recorder/ScreenRecorder'
+import { resolveFfmpegPath, checkScreenPermission as checkScreenPermissionSync } from '../system/ffmpeg'
+import { listCaptureSources } from '../recorder/sourceResolver'
 import { readAddonCharacterInfo } from '../addon/SavedVarsReader'
 import { ADDON_RELATIVE_PATH, COMBAT_LOG_RELATIVE_PATH } from '@shared/constants'
-import type { AppConfig, CaptureDevice } from '@shared/ipc.types'
+import type { AppConfig, CaptureSource } from '@shared/ipc.types'
 
 export function registerSystemIpc(configStore: Store<AppConfig>): void {
   // Return the current process platform so renderer can adapt onboarding flow.
@@ -46,7 +47,7 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
   // Check whether FFmpeg is installed and return its path.
   ipcMain.handle('system:checkFfmpeg', (): { found: boolean; path: string | null } => {
     try {
-      const path = ScreenRecorder.resolveFfmpegPath()
+      const path = resolveFfmpegPath()
       return { found: true, path }
     } catch {
       return { found: false, path: null }
@@ -68,7 +69,7 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
       } catch {
         // Falls through to getMediaAccessStatus below
       }
-      const raw = ScreenRecorder.checkScreenPermission()
+      const raw = checkScreenPermissionSync()
       const status = raw === 'restricted' ? 'denied' : raw
       return { status }
     }
@@ -85,7 +86,7 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
       } catch {
         // Throws when permission is denied — expected
       }
-      const raw = ScreenRecorder.checkScreenPermission()
+      const raw = checkScreenPermissionSync()
       const status = raw === 'restricted' ? 'denied' : raw
       return { status }
     }
@@ -135,60 +136,11 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
     return { path: canceled || filePaths.length === 0 ? null : (filePaths[0] ?? null) }
   })
 
-  // List video capture devices for the current platform.
-  // macOS: parses AVFoundation device list from FFmpeg.
-  // Windows: always captures the WoW window by title — no device selection needed.
-  ipcMain.handle('system:listCaptureDevices', async (): Promise<CaptureDevice[]> => {
-    if (process.platform === 'win32') {
-      return []
-    }
-
-    return new Promise((resolve) => {
-      let ffmpegPath: string
-      try {
-        ffmpegPath = ScreenRecorder.resolveFfmpegPath()
-      } catch {
-        resolve([])
-        return
-      }
-
-      execFile(ffmpegPath, ['-f', 'avfoundation', '-list_devices', 'true', '-i', ''], (_, __, stderr) => {
-        const devices: CaptureDevice[] = []
-        let inVideoSection = false
-        const lineRe = /\[(\d+)\]\s+(.+)/
-
-        for (const line of (stderr ?? '').split('\n')) {
-          if (line.includes('AVFoundation video devices')) { inVideoSection = true; continue }
-          if (line.includes('AVFoundation audio devices')) { inVideoSection = false; continue }
-          if (!inVideoSection) continue
-          const m = lineRe.exec(line)
-          if (m) {
-            const index = parseInt(m[1]!, 10)
-            const name = m[2]!.trim()
-            const isScreen = /screen|display|capture/i.test(name)
-            devices.push({ index, name, isScreen })
-          }
-        }
-
-        // Enrich screen devices with resolution + primary flag from Electron's display list.
-        // AVFoundation screen indices (1, 2, …) map to Electron displays in the same order.
-        const displays = electronScreen.getAllDisplays()
-        const primaryId = electronScreen.getPrimaryDisplay().id
-        let screenSlot = 0
-        for (const dev of devices) {
-          if (!dev.isScreen) continue
-          const display = displays[screenSlot]
-          if (display !== undefined) {
-            const { width, height } = display.size
-            dev.resolution = `${width}×${height}`
-            dev.isPrimary = display.id === primaryId
-          }
-          screenSlot++
-        }
-
-        resolve(devices)
-      })
-    })
+  // List window/screen capture sources for the Settings manual-override picker.
+  // Auto-detection (WoW window by title) happens separately in sourceResolver.ts at
+  // recording-start time — this handler is only for populating the picker UI.
+  ipcMain.handle('system:listCaptureWindows', async (): Promise<CaptureSource[]> => {
+    return listCaptureSources()
   })
 
   // Copy the bundled ArenaRecorderCompanion addon to the WoW AddOns directory.

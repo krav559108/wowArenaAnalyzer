@@ -120,7 +120,62 @@ export const SPELL_IDS_CC: ReadonlySet<number> = new Set([
   115078, // Paralysis (Monk)
   202346, // Double Barrel (Hunter — BM)
   187650, // Freezing Trap (Hunter, second ID)
-  162480 // Steel Trap (Hunter)
+  162480, // Steel Trap (Hunter)
+
+  // --- Verified against wago.tools game-data build 12.0.1.66838 (see constants.ts
+  // spell-verification pass) — spells previously missing from our hand-maintained list.
+  99, // Incapacitating Roar (Druid)
+  1513, // Scare Beast (Hunter)
+  2637, // Hibernate (Druid)
+  5211, // Mighty Bash (Druid)
+  5484, // Howl of Terror (Warlock)
+  6789, // Mortal Coil (Warlock)
+  24394, // Intimidation (Hunter pet)
+  31661, // Dragon's Breath (Mage)
+  82691, // Ring of Frost (Mage)
+  88625, // Holy Word: Chastise (Priest)
+  89766, // Axe Toss (Warlock pet — Felguard)
+  91797, // Monstrous Blow (Hunter pet)
+  91800, // Gnaw (Hunter pet)
+  105421, // Blinding Light (Paladin)
+  117526, // Binding Shot (Hunter)
+  118345, // Pulverize (Shaman — Earth Elemental)
+  118699, // Fear (Warlock, alt ID)
+  118905, // Capacitor Totem (Shaman)
+  130616, // Fear (Warlock, alt ID)
+  132168, // Shockwave (Warrior, alt ID)
+  132169, // Storm Bolt (Warrior, alt ID)
+  163505, // Rake (Druid — Feral, stun variant)
+  171017, // Meteor Strike (Hunter pet)
+  179057, // Chaos Nova (Demon Hunter)
+  198909, // Song of Chi-Ji (Monk)
+  200166, // Metamorphosis (Demon Hunter — Vengeance)
+  200196, // Holy Word: Chastise (Priest, alt ID)
+  200200, // Holy Word: Chastise (Priest, alt ID)
+  202244, // Overrun (DK pet)
+  202274, // Hot Trub (Monk pet)
+  203337, // Freezing Trap (Hunter, third ID)
+  205290, // Wake of Ashes (Paladin)
+  205364, // Dominate Mind (Priest)
+  205630, // Illidan's Grasp (Demon Hunter)
+  207167, // Blinding Sleet (DK)
+  207685, // Sigil of Misery (Demon Hunter)
+  210141, // Reanimation (DK pet)
+  212332, // Smash (Warrior pet)
+  212337, // Powerful Smash (Warrior pet)
+  217832, // Imprison (Demon Hunter)
+  221562, // Asphyxiate (DK)
+  255941, // Wake of Ashes (Paladin, alt ID)
+  305485, // Lightning Lasso (Shaman)
+  353084, // Ring of Fire (Mage)
+  357021, // Consecutive Concussion (Warrior)
+  360806, // Sleep Walk (Evoker)
+  372245, // Terror of the Skies (Evoker)
+  377048, // Absolute Zero (Mage)
+  383121, // Mass Polymorph (Mage)
+  385954, // Shield Charge (Warrior)
+  389831, // Snowdrift (Mage)
+  1234195, // Void Nova (Demon Hunter)
 ])
 
 // ---------------------------------------------------------------------------
@@ -196,6 +251,25 @@ export const SPELL_IDS_DEFENSIVE: ReadonlySet<number> = new Set([
   374875, // Time Spiral
   370784, // Rescue
   370960, // Zephyr
+
+  // --- Verified against wago.tools game-data build 12.0.1.66838 (see constants.ts
+  // spell-verification pass) — defensives previously missing from our hand-maintained list.
+  6940,   // Blessing of Sacrifice (Paladin)
+  199448, // Blessing of Sacrifice (Paladin, alt ID)
+  204018, // Blessing of Spellwarding (Paladin)
+  86659,  // Guardian of Ancient Kings (Paladin)
+  50322,  // Survival Instincts (Druid, current ID)
+  116849, // Life Cocoon (Monk — Mistweaver)
+  120954, // Fortifying Brew (Monk, alt ID)
+  53480,  // Roar of Sacrifice (Hunter)
+  264735, // Survival of the Fittest (Hunter)
+  55233,  // Vampiric Blood (Death Knight)
+  81549,  // Cloak of Shadows (Rogue, current ID — supersedes 31224)
+  212800, // Blur (Demon Hunter, current ID — supersedes 198589)
+  207771, // Fiery Brand (Demon Hunter)
+  342246, // Alter Time (Mage, current ID — supersedes 108978)
+  414658, // Ice Cold (Mage)
+  357170, // Time Dilation (Evoker)
 ])
 
 // ---------------------------------------------------------------------------
@@ -236,14 +310,23 @@ export const SPELL_IDS_INTERRUPT: ReadonlySet<number> = new Set([
   1766, // Kick (Rogue)
   6552, // Pummel (Warrior)
   47528, // Mind Freeze (DK)
-  183752, // Consume Magic (DH)
+  183752, // Disrupt (DH) — comment previously said "Consume Magic", ID was correct
   116705, // Spear Hand Strike (Monk)
   96231, // Rebuke (Paladin)
   57994, // Wind Shear (Shaman)
   19647, // Spell Lock (Warlock — felhunter)
   147362, // Counter Shot (Hunter)
   187707, // Muzzle (Hunter — MM)
-  351338 // Quell (Evoker)
+  351338, // Quell (Evoker)
+
+  // --- Verified against wago.tools game-data build 12.0.1.66838 (see constants.ts
+  // spell-verification pass) — we had zero interrupt coverage for Feral Druid and
+  // Shadow Priest, two common arena specs.
+  93985,  // Skull Bash (Druid — Feral)
+  263715, // Silence (Priest — Shadow)
+  171138, // Shadow Lock (Warlock — voidwalker pet, alt to Spell Lock)
+  91807,  // Shambling Rush (DK — Unholy pet)
+  386071, // Disrupting Shout (Warrior — Protection)
 ])
 
 // ---------------------------------------------------------------------------
@@ -260,6 +343,28 @@ export const SPELL_IDS_TRINKET: ReadonlySet<number> = new Set([
 export const SPELL_IDS_CC_BREAK: ReadonlySet<number> = new Set([
   20549,  // War Stomp (Tauren racial)
   255654, // Battle Cry (generic CC break)
+])
+
+// ---------------------------------------------------------------------------
+// Spell IDs — Full immunities (used by the mistake detector: damage/CC cast into one
+// of these is always wasted — the target cannot be affected while the aura is active).
+// ---------------------------------------------------------------------------
+export const SPELL_IDS_IMMUNITY: ReadonlySet<number> = new Set([
+  642,    // Divine Shield (Paladin)
+  45438,  // Ice Block (Mage)
+  186265, // Aspect of the Turtle (Hunter)
+  33786,  // Cyclone (Druid) — target is untargetable/unaffectable while airborne
+  710,    // Banish (Warlock, on demon targets)
+])
+
+// ---------------------------------------------------------------------------
+// Low-value CC — short duration or breaks on damage, not worth using a PvP trinket
+// (Every Man for Himself / Will of the Forsaken / PvP Trinket) to escape.
+// ---------------------------------------------------------------------------
+export const LOW_VALUE_CC_IDS: ReadonlySet<number> = new Set([
+  6770, // Sap (Rogue)
+  1776, // Gouge (Rogue)
+  1330, // Garrote — Silence (Rogue)
 ])
 
 // ---------------------------------------------------------------------------
@@ -428,6 +533,110 @@ export const SPELL_CLASS_MAP: Readonly<Record<number, string>> = {
   // Warrior (additions)
   97462:  'Warrior', // Rallying Cry
   184364: 'Warrior', // Enraged Regeneration
+
+  // --- Verified against wago.tools game-data build 12.0.1.66838 (see constants.ts
+  // spell-verification pass) — class attribution for newly-added CC/defensive/interrupt IDs.
+  // Death Knight
+  91797: 'Death Knight',  // Monstrous Blow
+  91800: 'Death Knight',  // Gnaw
+  207167: 'Death Knight', // Blinding Sleet
+  210141: 'Death Knight', // Reanimation
+  212332: 'Death Knight', // Smash
+  212337: 'Death Knight', // Powerful Smash
+  221562: 'Death Knight', // Asphyxiate
+  377048: 'Death Knight', // Absolute Zero
+  55233: 'Death Knight',  // Vampiric Blood
+  91807: 'Death Knight',  // Shambling Rush
+
+  // Demon Hunter
+  179057: 'Demon Hunter',  // Chaos Nova
+  200166: 'Demon Hunter',  // Metamorphosis
+  205630: 'Demon Hunter',  // Illidan's Grasp
+  207685: 'Demon Hunter',  // Sigil of Misery
+  217832: 'Demon Hunter',  // Imprison
+  1234195: 'Demon Hunter', // Void Nova
+  207771: 'Demon Hunter',  // Fiery Brand
+  212800: 'Demon Hunter',  // Blur (current ID)
+
+  // Druid
+  99: 'Druid',      // Incapacitating Roar
+  2637: 'Druid',    // Hibernate
+  5211: 'Druid',    // Mighty Bash
+  163505: 'Druid',  // Rake
+  202244: 'Druid',  // Overrun
+  50322: 'Druid',   // Survival Instincts (current ID)
+  93985: 'Druid',   // Skull Bash
+
+  // Evoker
+  360806: 'Evoker', // Sleep Walk
+  372245: 'Evoker', // Terror of the Skies
+  357170: 'Evoker', // Time Dilation
+
+  // Hunter
+  1513: 'Hunter',    // Scare Beast
+  24394: 'Hunter',   // Intimidation
+  117526: 'Hunter',  // Binding Shot
+  203337: 'Hunter',  // Freezing Trap (alt)
+  357021: 'Hunter',  // Consecutive Concussion
+  53480: 'Hunter',   // Roar of Sacrifice
+  264735: 'Hunter',  // Survival of the Fittest
+
+  // Mage
+  31661: 'Mage',   // Dragon's Breath
+  82691: 'Mage',   // Ring of Frost
+  353084: 'Mage',  // Ring of Fire
+  383121: 'Mage',  // Mass Polymorph
+  389831: 'Mage',  // Snowdrift
+  342246: 'Mage',  // Alter Time (current ID)
+  414658: 'Mage',  // Ice Cold
+  386770: 'Mage',  // Freezing Cold
+  454787: 'Mage',  // Ice Prison
+  1258862: 'Mage', // Encasing Cold
+
+  // Monk
+  198909: 'Monk',  // Song of Chi-Ji
+  202274: 'Monk',  // Hot Trub
+  116849: 'Monk',  // Life Cocoon
+  120954: 'Monk',  // Fortifying Brew (alt ID)
+
+  // Paladin
+  105421: 'Paladin', // Blinding Light
+  205290: 'Paladin', // Wake of Ashes
+  255941: 'Paladin', // Wake of Ashes (alt ID)
+  6940: 'Paladin',   // Blessing of Sacrifice
+  86659: 'Paladin',  // Guardian of Ancient Kings
+  199448: 'Paladin', // Blessing of Sacrifice (alt ID)
+  204018: 'Paladin', // Blessing of Spellwarding
+
+  // Priest
+  88625: 'Priest',  // Holy Word: Chastise
+  200196: 'Priest', // Holy Word: Chastise (alt ID)
+  200200: 'Priest', // Holy Word: Chastise (alt ID)
+  205364: 'Priest', // Dominate Mind
+  263715: 'Priest', // Silence
+
+  // Rogue
+  81549: 'Rogue', // Cloak of Shadows (current ID)
+
+  // Shaman
+  118345: 'Shaman', // Pulverize (Earth Elemental)
+  118905: 'Shaman', // Capacitor Totem
+  305485: 'Shaman', // Lightning Lasso
+
+  // Warlock
+  5484: 'Warlock',   // Howl of Terror
+  6789: 'Warlock',   // Mortal Coil
+  89766: 'Warlock',  // Axe Toss
+  118699: 'Warlock', // Fear (alt ID)
+  130616: 'Warlock', // Fear (alt ID)
+  171017: 'Warlock', // Meteor Strike
+  171138: 'Warlock', // Shadow Lock
+
+  // Warrior
+  132168: 'Warrior', // Shockwave (alt ID)
+  132169: 'Warrior', // Storm Bolt (alt ID)
+  385954: 'Warrior', // Shield Charge
+  386071: 'Warrior', // Disrupting Shout
 }
 
 // ---------------------------------------------------------------------------
@@ -557,24 +766,53 @@ export const WOW_SPEC_ID_MAP: Readonly<Record<number, { spec: string; class: str
 // DR window: 18 seconds measured from when the AURA expired (SPELL_AURA_REMOVED).
 // ---------------------------------------------------------------------------
 
+// Category values match Blizzard's actual 8 DR categories exactly (verified against
+// wago.tools game-data build 12.0.1.66838 — see constants.ts spell-verification pass).
+// IMPORTANT FIX: this map previously used made-up category names ('fear', 'horror',
+// 'cyclone', 'blind') for spells that in-game actually share the SAME 'disorient' DR
+// pool as Polymorph/Hex/etc. — e.g. a Fear followed by a Cyclone within the 18s window
+// should have DR'd against each other but didn't, because our code treated them as
+// unrelated categories. All four are now merged into 'disorient' below.
 export const DR_CATEGORY: Readonly<Record<number, string>> = {
-  // Disorient (Polymorph / Hex family)
+  // Disorient (Polymorph / Hex / Fear / Cyclone / Blind family — all share one DR pool)
   118: 'disorient',    // Polymorph
   161355: 'disorient', // Polymorph (Black Cat)
   28271: 'disorient',  // Polymorph (Turtle)
   28272: 'disorient',  // Polymorph (Pig)
   61025: 'disorient',  // Polymorph (Serpent)
   61305: 'disorient',  // Polymorph (Black Cat)
+  383121: 'disorient', // Mass Polymorph (Mage)
   51514: 'disorient',  // Hex
   211015: 'disorient', // Hex (Skeletal Hatchling)
   211010: 'disorient', // Hex (Snake)
   277778: 'disorient', // Hex (Zandalari Tendonripper)
   3355: 'disorient',   // Freezing Trap
   187650: 'disorient', // Freezing Trap (alt)
+  203337: 'disorient', // Freezing Trap (alt 2)
   19386: 'disorient',  // Wyvern Sting
   20066: 'disorient',  // Repentance
-  9484: 'disorient',   // Shackle Undead
+  9484: 'disorient',   // Shackle Undead / Shackle Horror
   2637: 'disorient',   // Hibernate (Druid)
+  5782: 'disorient',   // Fear (Warlock)
+  118699: 'disorient', // Fear (Warlock, alt ID)
+  130616: 'disorient', // Fear (Warlock, alt ID)
+  6358: 'disorient',   // Seduction (Warlock)
+  5246: 'disorient',   // Intimidating Shout (Warrior)
+  5484: 'disorient',   // Howl of Terror (Warlock)
+  8122: 'disorient',   // Psychic Scream (Priest)
+  605: 'disorient',    // Mind Control (Priest)
+  205364: 'disorient', // Dominate Mind (Priest)
+  64044: 'disorient',  // Psychic Horror (Priest)
+  33786: 'disorient',  // Cyclone (Druid)
+  2094: 'disorient',   // Blind (Rogue)
+  10326: 'disorient',  // Turn Evil (Paladin)
+  31661: 'disorient',  // Dragon's Breath (Mage)
+  105421: 'disorient', // Blinding Light (Paladin)
+  198909: 'disorient', // Song of Chi-Ji (Monk)
+  360806: 'disorient', // Sleep Walk (Evoker)
+  207167: 'disorient', // Blinding Sleet (DK)
+  207685: 'disorient', // Sigil of Misery (Demon Hunter)
+  202274: 'disorient', // Hot Trub (Monk pet)
 
   // Stun
   408: 'stun',         // Kidney Shot
@@ -582,35 +820,103 @@ export const DR_CATEGORY: Readonly<Record<number, string>> = {
   853: 'stun',         // Hammer of Justice
   119381: 'stun',      // Leg Sweep
   107570: 'stun',      // Storm Bolt
-  46968: 'stun',       // Shockwave
-  5211: 'stun',        // Bash (Druid)
+  132169: 'stun',      // Storm Bolt (alt ID)
+  46968: 'stun',       // Shockwave (Warrior)
+  132168: 'stun',      // Shockwave (Warrior, alt ID)
+  5211: 'stun',        // Bash / Mighty Bash (Druid)
   22570: 'stun',       // Maim (Druid)
   9005: 'stun',        // Pounce (Druid)
+  163505: 'stun',      // Rake (Druid — Feral, stun variant)
+  24394: 'stun',       // Intimidation (Hunter pet)
+  89766: 'stun',       // Axe Toss (Warlock pet)
+  91797: 'stun',       // Monstrous Blow (Hunter pet)
+  91800: 'stun',       // Gnaw (Hunter pet)
+  117526: 'stun',      // Binding Shot (Hunter)
+  118345: 'stun',      // Pulverize (Shaman — Earth Elemental)
+  118905: 'stun',      // Capacitor Totem (Shaman)
+  171017: 'stun',      // Meteor Strike (Hunter pet)
+  179057: 'stun',      // Chaos Nova (Demon Hunter)
+  200166: 'stun',      // Metamorphosis (Demon Hunter — Vengeance)
+  200200: 'stun',      // Holy Word: Chastise (Priest, stun variant)
+  202244: 'stun',      // Overrun (DK pet)
+  202346: 'stun',      // Double Barrel (Hunter — BM)
+  205290: 'stun',      // Wake of Ashes (Paladin)
+  255941: 'stun',      // Wake of Ashes (Paladin, alt ID)
+  205630: 'stun',      // Illidan's Grasp (Demon Hunter)
+  210141: 'stun',      // Reanimation (DK pet)
+  212332: 'stun',      // Smash (Warrior pet)
+  212337: 'stun',      // Powerful Smash (Warrior pet)
+  221562: 'stun',      // Asphyxiate (DK)
+  305485: 'stun',      // Lightning Lasso (Shaman)
+  357021: 'stun',      // Consecutive Concussion (Warrior)
+  372245: 'stun',      // Terror of the Skies (Evoker)
+  377048: 'stun',      // Absolute Zero (Mage)
+  385954: 'stun',      // Shield Charge (Warrior)
+  389831: 'stun',      // Snowdrift (Mage)
+  1234195: 'stun',     // Void Nova (Demon Hunter)
+  30283: 'stun',       // Shadowfury (Warlock)
 
   // Incapacitate
   6770: 'incapacitate', // Sap
   1776: 'incapacitate', // Gouge
   710: 'incapacitate',  // Banish
+  99: 'incapacitate',   // Incapacitating Roar (Druid)
+  1513: 'incapacitate', // Scare Beast (Hunter)
+  6789: 'incapacitate', // Mortal Coil (Warlock)
+  82691: 'incapacitate', // Ring of Frost (Mage)
+  88625: 'incapacitate', // Holy Word: Chastise (Priest, incap variant)
+  200196: 'incapacitate', // Holy Word: Chastise (Priest, alt ID)
+  115078: 'incapacitate', // Paralysis (Monk)
+  217832: 'incapacitate', // Imprison (Demon Hunter)
+  353084: 'incapacitate', // Ring of Fire (Mage)
 
   // Root
   339: 'root',          // Entangling Roots
+  170855: 'root',       // Entangling Roots (alt ID)
   33395: 'root',        // Freeze (Water Elemental)
   122: 'root',          // Frost Nova
+  64695: 'root',        // Earthgrab (Shaman totem)
+  102359: 'root',       // Mass Entanglement (Hunter)
+  114404: 'root',       // Void Tendrils (Warlock)
+  116706: 'root',       // Disable (Monk, root application)
+  136634: 'root',       // Narrow Escape (Hunter trap)
+  199042: 'root',       // Thunderstruck (Warrior)
+  212638: 'root',       // Tracker's Net (Hunter)
+  355689: 'root',       // Landslide (Evoker)
+  370970: 'root',       // The Hunt (Evoker)
+  386770: 'root',       // Freezing Cold (Mage)
+  454787: 'root',       // Ice Prison (Mage)
+  1258862: 'root',      // Encasing Cold (Mage)
 
-  // Fear
-  5782: 'fear',         // Fear (Warlock)
-  6358: 'fear',         // Seduction
-  5246: 'fear',         // Intimidating Shout
-  8122: 'fear',         // Psychic Scream
+  // Taunt (low arena relevance — no tanks in most comps — kept for completeness)
+  355: 'taunt',      // Taunt (Warrior)
+  1161: 'taunt',     // Challenging Shout (Warrior)
+  6795: 'taunt',     // Growl (Druid/Hunter pet)
+  56222: 'taunt',    // Dark Command (Death Knight)
+  62124: 'taunt',    // Hand of Reckoning (Paladin)
+  106898: 'taunt',   // Stampeding Roar (Druid)
+  116189: 'taunt',   // Provoke (Monk)
+  185245: 'taunt',   // Torment (Demon Hunter)
 
-  // Horror
-  64044: 'horror',      // Psychic Horror
+  // Knockback
+  51490: 'knockback',  // Thunderstorm (Shaman)
+  61391: 'knockback',  // Typhoon (Druid)
+  132469: 'knockback', // Typhoon (Druid, alt ID)
+  108199: 'knockback', // Gorefiend's Grasp (Death Knight)
 
-  // Cyclone (its own DR category in WoW)
-  33786: 'cyclone',     // Cyclone
+  // Silence
+  1330: 'silence',    // Garrote — Silence (Rogue)
+  15487: 'silence',   // Silence (Priest — Shadow)
+  31935: 'silence',   // Avenger's Shield (Paladin)
+  204490: 'silence',  // Sigil of Silence (Demon Hunter)
+  374776: 'silence',  // Tightening Grasp (Evoker)
 
-  // Blind
-  2094: 'blind',        // Blind
+  // Disarm
+  207777: 'disarm',   // Dismantle (Rogue)
+  209749: 'disarm',   // Faerie Swarm (Druid)
+  233759: 'disarm',   // Grapple Weapon (Monk)
+  236077: 'disarm',   // Disarm (Warrior)
+  407032: 'disarm',   // Sticky Tar Bomb (Hunter)
 }
 
 // ---------------------------------------------------------------------------
@@ -635,12 +941,10 @@ export const COMBAT_LOG_GLOB = 'WoWCombatLog*.txt'
 // Legacy: kept for tests that reference the old constant
 export const COMBAT_LOG_RELATIVE_PATH = '_retail_/Logs/WoWCombatLog.txt'
 
-// Default AVFoundation capture device — "Capture screen 0" resolves to the main
-// screen regardless of how many cameras are attached (camera index shifts when
-// a Continuity Camera / external webcam is connected). We store the *index* as
-// a string because FFmpeg requires -i "<videoIdx>:<audioIdx>".
-// On first launch the app enumerates devices and overwrites this with the real index.
-export const DEFAULT_CAPTURE_DEVICE = 'Capture screen 0'
+// Default capture source hint — 'auto' means auto-detect the WoW window by title
+// (see src/main/recorder/sourceResolver.ts). Settings can override this with a
+// specific desktopCapturer source name for manual selection.
+export const DEFAULT_CAPTURE_SOURCE_HINT = 'auto'
 export const DEFAULT_VIDEO_RESOLUTION = 'native'
 export const DEFAULT_MINIMIZE_TO_TRAY = true
 export const ADDON_RELATIVE_PATH = '_retail_/Interface/AddOns/ArenaRecorderCompanion'

@@ -12,10 +12,19 @@
 import { EventEmitter } from 'events'
 import { join } from 'path'
 import type { ArenaBracket, ArenaResult, RecorderStatus, TimelineEvent } from '@shared/ipc.types'
-import { SPELL_CLASS_MAP, DR_CATEGORY, WOW_SPEC_ID_MAP } from '@shared/constants'
+import {
+  SPELL_CLASS_MAP,
+  DR_CATEGORY,
+  WOW_SPEC_ID_MAP,
+  SPELL_IDS_CC,
+  SPELL_IDS_DEFENSIVE,
+  SPELL_IDS_IMMUNITY,
+  LOW_VALUE_CC_IDS
+} from '@shared/constants'
 import { getClassDefensives, type WowClass } from '@shared/classAbilities'
+import { detectMistakes, type AuraWindow, type DetectedMistake } from '../analysis/mistakeDetector'
 import type { CombatLogWatcher } from '../combatlog/CombatLogWatcher'
-import type { RecorderOptions, ScreenRecorder } from './ScreenRecorder'
+import type { RecorderOptions, WindowCaptureRecorder } from './WindowCaptureRecorder'
 import type {
   ArenaZoneEnteredEvent,
   ArenaMatchStartEvent,
@@ -26,6 +35,7 @@ import type {
   CombatantInfoEvent,
   SpellDamageEvent,
   SpellHealAmountEvent,
+  SpellAbsorbEvent,
   ArenaMatchStatsEntryEvent,
   UnitHealthEvent,
   SpellInterruptSuccessEvent,
@@ -43,7 +53,14 @@ export interface StateMachineOptions {
   // Local player's fullName (Name-Realm) from addon SavedVars — used for "could use" filter.
   // null = unknown (show "could use" for no deaths, to avoid false positives).
   localPlayerName: string | null
-  // Options forwarded to ScreenRecorder.start()
+  // Local player's GUID from addon SavedVars (e.g. "Player-1329-0A8E2A98") — the reliable
+  // way to identify the local player in COMBATANT_INFO/guidTeams. Prefer this over
+  // localPlayerName: the addon's stored name omits the realm's region suffix (e.g.
+  // "Name-Realm" vs the combat log's "Name-Realm-EU"), which silently broke exact name
+  // matching. null = unknown (addon not connected) — falls back to name matching, then
+  // to the unreliable ARENA_MATCH_START field.
+  localPlayerGuid: string | null
+  // Options forwarded to WindowCaptureRecorder.start()
   recorder?: RecorderOptions
 }
 
@@ -65,8 +82,24 @@ export interface ProcessingRequiredEvent {
   knownSpecs: Record<string, string>
   // confirmed healer names
   healerNames: string[]
+  // Team rosters resolved from COMBATANT_INFO (session.guidTeams), NOT from the
+  // per-event target/caster reaction-flag heuristic VideoPlayer.vue falls back to when
+  // these are empty — that heuristic breaks for spells like Mind Control, which flips
+  // the target's hostile/friendly flag for its duration, corrupting the guess. Empty
+  // arrays here mean "couldn't resolve" (e.g. addon not connected) — the renderer falls
+  // back to its heuristic in that case.
+  teamComp: string[]
+  enemyComp: string[]
   // name → personal rating from COMBATANT_INFO
   playerRatings: Record<string, number>
+  // Shield-caster name → total damage absorbed by their shields (SPELL_ABSORBED)
+  playerAbsorb: Record<string, number>
+  // Per-player meters (Details!/Skada-style) — name → total for the match/round
+  playerDamageDone: Record<string, number>
+  playerDamageTaken: Record<string, number>
+  playerHealingDone: Record<string, number>
+  // Post-match mistake analysis (see src/main/analysis/mistakeDetector.ts)
+  detectedMistakes: DetectedMistake[]
   // Per-second cumulative damage arrays for line charts
   teamDmgBySecond: number[]
   enemyDmgBySecond: number[]
@@ -133,6 +166,13 @@ interface CompletedRoundData {
   enemyDmgBySecond: number[]
   teamHealBySecond: number[]
   enemyHealBySecond: number[]
+  teamComp: string[]
+  enemyComp: string[]
+  playerAbsorb: Record<string, number>
+  playerDamageDone: Record<string, number>
+  playerDamageTaken: Record<string, number>
+  playerHealingDone: Record<string, number>
+  detectedMistakes: DetectedMistake[]
 }
 
 interface SessionContext {
@@ -166,6 +206,18 @@ interface SessionContext {
   healerNames: Map<string, string>
   // playerName → spec string from COMBATANT_INFO specId
   knownSpecs: Map<string, string>
+  // Shield-caster playerName → total damage absorbed by their shields this round
+  absorbDoneByName: Map<string, number>
+  // Per-player meters (Details!/Skada-style), keyed by playerName, cleared per round.
+  dmgDoneByName: Map<string, number>
+  dmgTakenByName: Map<string, number>
+  healDoneByName: Map<string, number>
+  // targetGuid → aura windows (open when end === Infinity) for spells in
+  // SPELL_IDS_DEFENSIVE / SPELL_IDS_IMMUNITY / LOW_VALUE_CC_IDS — used by the mistake
+  // detector to correlate offensive/cc/trinket casts against what was active on the
+  // target (or caster, for the trinket case) at that moment. Deliberately separate from
+  // activeCCs, which stays CC-only (used by the "no healer CC'd" check).
+  auraWindows: Map<string, AuraWindow[]>
 
   // --- Per-session (not cleared per round) ---
   // GUID → { specId, personalRating, team } — deferred COMBATANT_INFO resolution when name was unknown
@@ -214,17 +266,31 @@ export class RecorderStateMachine extends EventEmitter {
 
   // Local player's fullName from addon SavedVars (Name-Realm format).
   private readonly localPlayerName: string | null
+  // Local player's GUID from addon SavedVars — preferred over localPlayerName (see
+  // StateMachineOptions.localPlayerGuid doc comment for why name matching is fragile).
+  private readonly localPlayerGuid: string | null
+
+  // Diagnostic cross-check (2v2/3v3 only): the previous rated match's local-player
+  // rating snapshot + computed result, held until the next COMBATANT_INFO for that
+  // guid arrives (next match's pre-match rating) so we can verify the sign of the
+  // rating change matches the result we recorded. Logs a warning on mismatch —
+  // does not correct already-written files. See onCombatantInfo/onMatchEnd.
+  private pendingRatingCheck: { guid: string; ratingBefore: number; result: ArenaResult; label: string } | null = null
+  // Local player's personal rating from this match's COMBATANT_INFO (captured for the
+  // cross-check above). Reset on each new match start.
+  private currentMatchLocalRating: number | null = null
 
   private readonly watcher: CombatLogWatcher
-  private readonly recorder: ScreenRecorder
+  private readonly recorder: WindowCaptureRecorder
   private options: StateMachineOptions
 
-  constructor(watcher: CombatLogWatcher, recorder: ScreenRecorder, options: StateMachineOptions) {
+  constructor(watcher: CombatLogWatcher, recorder: WindowCaptureRecorder, options: StateMachineOptions) {
     super()
     this.watcher = watcher
     this.recorder = recorder
     this.options = options
     this.localPlayerName = options.localPlayerName ?? null
+    this.localPlayerGuid = options.localPlayerGuid ?? null
 
     this.bindParserEvents()
     this.bindRecorderEvents()
@@ -276,7 +342,7 @@ export class RecorderStateMachine extends EventEmitter {
     this.watcher.onParser('arenaZoneLeft', () => this.onZoneLeft())
     this.watcher.onParser('arenaMatchStart', (e) => this.onMatchStart(e))
     this.watcher.onParser('arenaMatchEnd', (e) =>
-      this.onMatchEnd(e.result, e.durationSecs, e.timestamp)
+      this.onMatchEnd(e.winningTeam, e.durationSecs, e.timestamp)
     )
     this.watcher.onParser('spellCast', (e) => this.onSpellCast(e))
     this.watcher.onParser('unitDied', (e) => this.onUnitDied(e))
@@ -286,6 +352,7 @@ export class RecorderStateMachine extends EventEmitter {
     this.watcher.onParser('combatantInfo', (e) => this.onCombatantInfo(e))
     this.watcher.onParser('spellDamage', (e) => this.onSpellDamage(e))
     this.watcher.onParser('spellHealAmount', (e) => this.onSpellHealAmount(e))
+    this.watcher.onParser('spellAbsorb', (e) => this.onSpellAbsorb(e))
     this.watcher.onParser('arenaMatchStatsEntry', (e) => this.onArenaMatchStats(e))
     this.watcher.onParser('unitHealth', (e) => this.onUnitHealth(e))
     this.watcher.onParser('spellInterruptSuccess', (e) => this.onSpellInterruptSuccess(e))
@@ -340,6 +407,11 @@ export class RecorderStateMachine extends EventEmitter {
       healerGuids: new Set(),
       healerNames: new Map(),
       knownSpecs: new Map(),
+      absorbDoneByName: new Map(),
+      dmgDoneByName: new Map(),
+      dmgTakenByName: new Map(),
+      healDoneByName: new Map(),
+      auraWindows: new Map(),
       pendingCombatantByGuid: new Map(),
       guidTeams: new Map(),
       playerRatings: new Map(),
@@ -402,6 +474,11 @@ export class RecorderStateMachine extends EventEmitter {
         healerGuids: new Set(),
         healerNames: new Map(),
         knownSpecs: new Map(),
+        absorbDoneByName: new Map(),
+        dmgDoneByName: new Map(),
+        dmgTakenByName: new Map(),
+        healDoneByName: new Map(),
+        auraWindows: new Map(),
         pendingCombatantByGuid: new Map(),
         guidTeams: new Map(),
         playerRatings: new Map(),
@@ -436,7 +513,11 @@ export class RecorderStateMachine extends EventEmitter {
     this.session.localTeam = e.localTeam
     this.session.roundNumber++
     this.session.matchStartedAt = e.timestamp
-    console.warn(`[StateMachine] localPlayerName: ${this.localPlayerName ?? 'null (addon not connected)'}`)
+    this.currentMatchLocalRating = null
+    console.warn(
+      `[StateMachine] localPlayerName: ${this.localPlayerName ?? 'null (addon not connected)'}, ` +
+        `localPlayerGuid: ${this.localPlayerGuid ?? 'null (addon not connected)'}`
+    )
     // Cancel any pending solo-shuffle timeout from a previous round
     if (this.session.soloShuffleTimeoutId !== null) {
       clearTimeout(this.session.soloShuffleTimeoutId)
@@ -448,6 +529,11 @@ export class RecorderStateMachine extends EventEmitter {
     this.session.playerCooldowns = new Map()
     this.session.activeCCs = new Map()
     this.session.drCounters = new Map()
+    this.session.absorbDoneByName = new Map()
+    this.session.dmgDoneByName = new Map()
+    this.session.dmgTakenByName = new Map()
+    this.session.healDoneByName = new Map()
+    this.session.auraWindows = new Map()
     this.session.recentDamageByGuid = new Map()
     this.session.recentHealthByGuid = new Map()
     this.session.pendingInterruptByCaster = new Map()
@@ -470,7 +556,112 @@ export class RecorderStateMachine extends EventEmitter {
     )
   }
 
-  private onMatchEnd(result: ArenaResult, durationSecs: number, matchEndTimestamp: Date): void {
+  // Resolves which team (0/1) the logging player is actually on, using COMBATANT_INFO
+  // (guidTeams, keyed by GUID). This is reliable — verified against real combat logs,
+  // where ARENA_MATCH_START's field-3 "localTeam" stays constant for an entire session
+  // regardless of the player's true per-match team, while COMBATANT_INFO's team field
+  // correctly varies match to match. Returns null if the addon isn't connected or the
+  // player's GUID/name can't be resolved yet, in which case callers should fall back to
+  // session.localTeam (unreliable but better than nothing).
+  private resolveLocalTeam(): number | null {
+    if (this.session === null) return null
+
+    // Preferred: direct GUID lookup from the addon's SavedVars. Robust against name
+    // mismatches — confirmed in practice that the addon's stored name omits the
+    // realm's region suffix (e.g. "Name-Realm" vs the combat log's "Name-Realm-EU"),
+    // which silently broke exact string matching below.
+    if (this.localPlayerGuid !== null) {
+      const team = this.session.guidTeams.get(this.localPlayerGuid)
+      if (team !== undefined) return team
+    }
+
+    // Fallback: name matching via the parser's GUID→name cache (built from combat
+    // events, independent of COMBATANT_INFO's own name field which can lag behind).
+    if (this.localPlayerName !== null) {
+      const lowerName = this.localPlayerName.toLowerCase()
+      for (const [guid, team] of this.session.guidTeams) {
+        const name = this.watcher.parser.nameCache.get(guid)
+        if (name !== undefined && name.toLowerCase() === lowerName) {
+          return team
+        }
+      }
+    }
+
+    return null
+  }
+
+  // Compares the previous rated match's recorded result against the sign of the
+  // rating change now observed (this match's pre-match rating vs. the previous
+  // match's pre-match rating). Logs a warning on disagreement — diagnostic only.
+  private checkPendingRatingAgainstResult(newRating: number): void {
+    const pending = this.pendingRatingCheck
+    if (pending === null || this.localPlayerGuid === null || pending.guid !== this.localPlayerGuid) return
+    this.pendingRatingCheck = null
+
+    const delta = newRating - pending.ratingBefore
+    if (delta === 0) return // e.g. rating floor/ceiling — inconclusive, skip
+    const impliedResult: ArenaResult = delta > 0 ? 'WIN' : 'LOSS'
+
+    if (impliedResult !== pending.result) {
+      console.warn(
+        `[StateMachine] Rating-delta cross-check MISMATCH for ${pending.label}: ` +
+          `recorded result=${pending.result}, but rating went ${pending.ratingBefore} → ${newRating} ` +
+          `(${delta > 0 ? '+' : ''}${delta}), implying ${impliedResult}.`
+      )
+    }
+  }
+
+  // Resolves team rosters from COMBATANT_INFO (session.guidTeams — the same reliable,
+  // GUID-keyed data resolveLocalTeam() uses for WIN/LOSS), instead of guessing from
+  // per-event target/caster reaction flags. Returns empty arrays if localTeam is
+  // unresolved (e.g. addon not connected) — VideoPlayer.vue falls back to its
+  // heuristic in that case, same as it always has.
+  private buildTeamRosters(localTeam: number | null): { teamComp: string[]; enemyComp: string[] } {
+    if (this.session === null || localTeam === null) return { teamComp: [], enemyComp: [] }
+    const teamComp: string[] = []
+    const enemyComp: string[] = []
+    for (const [guid, team] of this.session.guidTeams) {
+      const name = this.watcher.parser.nameCache.get(guid)
+      if (name === undefined) continue
+      if (team === localTeam) teamComp.push(name)
+      else enemyComp.push(name)
+    }
+    return { teamComp, enemyComp }
+  }
+
+  // Nearest HP% sample at or before relSecs for the given unit — requires Advanced
+  // Combat Logging (UNIT_HEALTH). Returns undefined if no sample is available yet.
+  private lookupHpPct(guid: string, relSecs: number): number | undefined {
+    if (this.session === null) return undefined
+    const samples = this.session.recentHealthByGuid.get(guid)
+    if (samples === undefined) return undefined
+    let hpPct: number | undefined
+    let closestDelta = Infinity
+    for (const s of samples) {
+      const delta = relSecs - s.relSecs
+      if (delta >= 0 && delta < closestDelta && s.maxHp > 0) {
+        closestDelta = delta
+        hpPct = Math.round((s.hp / s.maxHp) * 100)
+      }
+    }
+    return hpPct
+  }
+
+  // Resolves session.auraWindows (GUID-keyed) to player names via the parser's name
+  // cache, for the mistake detector — which only deals in names, matching
+  // TimelineEvent's casterName/targetName fields.
+  private buildAuraWindowsByName(): Map<string, AuraWindow[]> {
+    const byName = new Map<string, AuraWindow[]>()
+    if (this.session === null) return byName
+    for (const [guid, windows] of this.session.auraWindows) {
+      const name = this.watcher.parser.nameCache.get(guid)
+      if (name === undefined) continue
+      byName.set(name, windows)
+    }
+    return byName
+  }
+
+  private onMatchEnd(winningTeam: number, durationSecs: number, matchEndTimestamp: Date): void {
     // Normal solo shuffle path: recorder was already stopped on the last UNIT_DIED and
     // processingRequired was emitted; just clean up the session and go idle.
     if (this.session?.isSoloShuffle && this.status === 'waiting') {
@@ -509,6 +700,32 @@ export class RecorderStateMachine extends EventEmitter {
       return
     }
 
+    const resolvedLocalTeam = this.resolveLocalTeam()
+    if (resolvedLocalTeam === null) {
+      console.warn(
+        '[StateMachine] onMatchEnd: could not resolve local team via COMBATANT_INFO — ' +
+          'falling back to unreliable ARENA_MATCH_START field 3'
+      )
+    }
+    const effectiveLocalTeam = resolvedLocalTeam ?? this.session.localTeam
+    const result: ArenaResult = winningTeam === effectiveLocalTeam ? 'WIN' : 'LOSS'
+    const { teamComp, enemyComp } = this.buildTeamRosters(resolvedLocalTeam)
+
+    // Diagnostic rating-delta cross-check (2v2/3v3 only — solo shuffle's rating only
+    // moves once for the whole 6-round session, not per round; skirmish is unrated).
+    // Rating "after" this match isn't available synchronously in Midnight logs
+    // (ARENA_MATCH_STATS never fires) — the only signal is the NEXT match's
+    // COMBATANT_INFO for the same guid, handled in onCombatantInfo. This only logs a
+    // mismatch warning; it does not correct already-written files.
+    if (!isSoloShuffle && bracket !== 'skirmish' && this.localPlayerGuid !== null && this.currentMatchLocalRating !== null) {
+      this.pendingRatingCheck = {
+        guid: this.localPlayerGuid,
+        ratingBefore: this.currentMatchLocalRating,
+        result,
+        label: `${bracket} in ${zoneName} at ${matchStartedAt.toISOString()}`
+      }
+    }
+
     // For solo shuffle: finalize the last round, then snapshot all per-round data before
     // stopping the recorder (session context is cleared after stop).
     let completedRounds: CompletedRoundData[] = []
@@ -521,6 +738,11 @@ export class RecorderStateMachine extends EventEmitter {
     const knownSpecs = Object.fromEntries(this.session.knownSpecs)
     const healerNames = [...this.session.healerNames.keys()]
     const playerRatings = Object.fromEntries(this.session.playerRatings)
+    const playerAbsorb = Object.fromEntries(this.session.absorbDoneByName)
+    const playerDamageDone = Object.fromEntries(this.session.dmgDoneByName)
+    const playerDamageTaken = Object.fromEntries(this.session.dmgTakenByName)
+    const playerHealingDone = Object.fromEntries(this.session.healDoneByName)
+    const detectedMistakes = detectMistakes(timeline, this.buildAuraWindowsByName())
     // For non-shuffle, use the parser-supplied durationSecs (correct for 2v2/3v3).
     // For solo shuffle, per-round durations are computed from timestamps in finalizeCurrentRound.
     const teamDmgBySecond = buildChartBySecond(this.session.teamDmgSamples, durationSecs)
@@ -555,7 +777,14 @@ export class RecorderStateMachine extends EventEmitter {
               timeline: round.timeline,
               knownSpecs: round.knownSpecs,
               healerNames: round.healerNames,
+              teamComp: round.teamComp,
+              enemyComp: round.enemyComp,
               playerRatings: round.playerRatings,
+              playerAbsorb: round.playerAbsorb,
+              playerDamageDone: round.playerDamageDone,
+              playerDamageTaken: round.playerDamageTaken,
+              playerHealingDone: round.playerHealingDone,
+              detectedMistakes: round.detectedMistakes,
               teamDmgBySecond: round.teamDmgBySecond,
               enemyDmgBySecond: round.enemyDmgBySecond,
               teamHealBySecond: round.teamHealBySecond,
@@ -579,7 +808,14 @@ export class RecorderStateMachine extends EventEmitter {
             timeline,
             knownSpecs,
             healerNames,
+            teamComp,
+            enemyComp,
             playerRatings,
+            playerAbsorb,
+            playerDamageDone,
+            playerDamageTaken,
+            playerHealingDone,
+            detectedMistakes,
             teamDmgBySecond,
             enemyDmgBySecond,
             teamHealBySecond,
@@ -612,16 +848,27 @@ export class RecorderStateMachine extends EventEmitter {
       (endTimestamp.getTime() - this.session.matchStartedAt.getTime()) / 1000
     )
     const result = computeRoundResult(this.session.currentRoundRealDeaths)
+    // Solo Shuffle re-teams every round — resolve rosters fresh per round, before the
+    // next round's COMBATANT_INFO overwrites session.guidTeams.
+    const { teamComp, enemyComp } = this.buildTeamRosters(this.resolveLocalTeam())
+    const roundTimeline = [...this.session.pendingTimeline]
 
     this.session.completedRounds.push({
       roundNumber: this.session.roundNumber,
       matchStartedAt: this.session.matchStartedAt,
       durationSecs,
       result,
-      timeline: [...this.session.pendingTimeline],
+      timeline: roundTimeline,
       knownSpecs: Object.fromEntries(this.session.knownSpecs),
       healerNames: [...this.session.healerNames.keys()],
+      teamComp,
+      enemyComp,
       playerRatings: Object.fromEntries(this.session.playerRatings),
+      playerAbsorb: Object.fromEntries(this.session.absorbDoneByName),
+      playerDamageDone: Object.fromEntries(this.session.dmgDoneByName),
+      playerDamageTaken: Object.fromEntries(this.session.dmgTakenByName),
+      playerHealingDone: Object.fromEntries(this.session.healDoneByName),
+      detectedMistakes: detectMistakes(roundTimeline, this.buildAuraWindowsByName()),
       teamDmgBySecond: buildChartBySecond(this.session.teamDmgSamples, durationSecs),
       enemyDmgBySecond: buildChartBySecond(this.session.enemyDmgSamples, durationSecs),
       teamHealBySecond: buildChartBySecond(this.session.teamHealSamples, durationSecs),
@@ -679,10 +926,20 @@ export class RecorderStateMachine extends EventEmitter {
     const matchStartedAt = this.session.matchStartedAt
     const durationSecs = Math.max(0, (endTimestamp.getTime() - matchStartedAt.getTime()) / 1000)
     const result = computeRoundResult(this.session.currentRoundRealDeaths)
+    // Solo Shuffle re-teams every round — resolve rosters fresh per round, before the
+    // next round's COMBATANT_INFO overwrites session.guidTeams.
+    const { teamComp, enemyComp } = this.buildTeamRosters(this.resolveLocalTeam())
     const timeline = [...this.session.pendingTimeline]
     const knownSpecs = Object.fromEntries(this.session.knownSpecs)
     const healerNames = [...this.session.healerNames.keys()]
     const playerRatings = Object.fromEntries(this.session.playerRatings)
+    const playerAbsorb = Object.fromEntries(this.session.absorbDoneByName)
+    const playerDamageDone = Object.fromEntries(this.session.dmgDoneByName)
+    const playerDamageTaken = Object.fromEntries(this.session.dmgTakenByName)
+    const playerHealingDone = Object.fromEntries(this.session.healDoneByName)
+    // Captured synchronously (before the async stop() below) so a same-tick COMBATANT_INFO
+    // for the next round can't overwrite auraWindows entries out from under this round.
+    const detectedMistakes = detectMistakes(timeline, this.buildAuraWindowsByName())
     const teamDmgBySecond = buildChartBySecond(this.session.teamDmgSamples, durationSecs)
     const enemyDmgBySecond = buildChartBySecond(this.session.enemyDmgSamples, durationSecs)
     const teamHealBySecond = buildChartBySecond(this.session.teamHealSamples, durationSecs)
@@ -711,7 +968,14 @@ export class RecorderStateMachine extends EventEmitter {
         timeline,
         knownSpecs,
         healerNames,
+        teamComp,
+        enemyComp,
         playerRatings,
+        playerAbsorb,
+        playerDamageDone,
+        playerDamageTaken,
+        playerHealingDone,
+        detectedMistakes,
         teamDmgBySecond,
         enemyDmgBySecond,
         teamHealBySecond,
@@ -808,6 +1072,13 @@ export class RecorderStateMachine extends EventEmitter {
       }
     }
 
+    // HP%-context for defensive casts (requires Advanced Combat Logging) — used by the
+    // mistake detector to flag defensives used too late (already low HP when cast).
+    const casterHpPct =
+      e.eventCategory === 'defensive'
+        ? this.lookupHpPct(e.casterGuid, relSecs)
+        : undefined
+
     const timelineIdx = this.session.pendingTimeline.length
     this.session.pendingTimeline.push({
       timestamp: relSecs,
@@ -819,7 +1090,8 @@ export class RecorderStateMachine extends EventEmitter {
       target: isEnemy ? 'enemy' : 'player',
       isHealerCC,
       isMistake,
-      mistakeReason
+      mistakeReason,
+      casterHpPct
     })
 
     // Buffer interrupt events for resolution via SPELL_INTERRUPT (success) or Precognition (failure).
@@ -850,6 +1122,11 @@ export class RecorderStateMachine extends EventEmitter {
 
     // Store team assignment by GUID for chart damage attribution
     this.session.guidTeams.set(e.playerGuid, e.team)
+
+    if (this.localPlayerGuid !== null && e.playerGuid === this.localPlayerGuid) {
+      this.currentMatchLocalRating = e.personalRating
+      this.checkPendingRatingAgainstResult(e.personalRating)
+    }
 
     // Always cache deferred COMBATANT_INFO — name may not be in GUID cache yet at match start
     this.session.pendingCombatantByGuid.set(e.playerGuid, {
@@ -899,41 +1176,60 @@ export class RecorderStateMachine extends EventEmitter {
     }
   }
 
+  // Spells the generic auraWindows tracker cares about, for mistake-detector
+  // correlation (damage/CC into immunity, burst into defensive, trinket-on-low-value-CC).
+  // Deliberately independent of activeCCs/drCounters below, which stay CC-only.
+  private static isTrackedAuraWindow(spellId: number): boolean {
+    return SPELL_IDS_DEFENSIVE.has(spellId) || SPELL_IDS_IMMUNITY.has(spellId) || LOW_VALUE_CC_IDS.has(spellId)
+  }
+
   private onAuraApplied(e: SpellAuraEvent): void {
     if (this.status !== 'recording' || this.session === null || this.session.matchStartedAt === null)
       return
 
     const relSecs = (e.timestamp.getTime() - this.session.matchStartedAt.getTime()) / 1000
-    const key = `${e.targetGuid}:${e.spellId}`
 
-    // Find the most recent matching CC cast in pendingTimeline to back-fill duration later.
-    let timelineIndex = -1
-    for (let i = this.session.pendingTimeline.length - 1; i >= 0; i--) {
-      const ev = this.session.pendingTimeline[i]!
-      if (ev.type === 'cc' && ev.spellId === e.spellId && ev.targetName === e.targetName) {
-        timelineIndex = i
-        break
+    // CC-only bookkeeping (activeCCs + DR) — unchanged from before the parser's aura
+    // filter was widened to also admit defensive/immunity auras (see isTrackedAuraWindow
+    // below for that separate path), so "no healer CC'd" etc. keep seeing CC-only state.
+    if (SPELL_IDS_CC.has(e.spellId)) {
+      const key = `${e.targetGuid}:${e.spellId}`
+
+      // Find the most recent matching CC cast in pendingTimeline to back-fill duration later.
+      let timelineIndex = -1
+      for (let i = this.session.pendingTimeline.length - 1; i >= 0; i--) {
+        const ev = this.session.pendingTimeline[i]!
+        if (ev.type === 'cc' && ev.spellId === e.spellId && ev.targetName === e.targetName) {
+          timelineIndex = i
+          break
+        }
+      }
+
+      this.session.activeCCs.set(key, {
+        spellId: e.spellId,
+        spellName: e.spellName,
+        startRelSecs: relSecs,
+        timelineIndex
+      })
+
+      // Update DR counter: increment count, keep existing window expiry if still active.
+      const drCategory = DR_CATEGORY[e.spellId]
+      if (drCategory !== undefined) {
+        const drKey = `${e.targetGuid}:${drCategory}`
+        const existing = this.session.drCounters.get(drKey)
+        if (existing !== undefined && relSecs < existing.windowExpiresAt) {
+          existing.count++
+        } else {
+          // Fresh window — first application in this cycle.
+          this.session.drCounters.set(drKey, { count: 1, windowExpiresAt: Infinity })
+        }
       }
     }
 
-    this.session.activeCCs.set(key, {
-      spellId: e.spellId,
-      spellName: e.spellName,
-      startRelSecs: relSecs,
-      timelineIndex
-    })
-
-    // Update DR counter: increment count, keep existing window expiry if still active.
-    const drCategory = DR_CATEGORY[e.spellId]
-    if (drCategory !== undefined) {
-      const drKey = `${e.targetGuid}:${drCategory}`
-      const existing = this.session.drCounters.get(drKey)
-      if (existing !== undefined && relSecs < existing.windowExpiresAt) {
-        existing.count++
-      } else {
-        // Fresh window — first application in this cycle.
-        this.session.drCounters.set(drKey, { count: 1, windowExpiresAt: Infinity })
-      }
+    if (RecorderStateMachine.isTrackedAuraWindow(e.spellId)) {
+      const windows = this.session.auraWindows.get(e.targetGuid) ?? []
+      windows.push({ spellId: e.spellId, spellName: e.spellName, start: relSecs, end: Infinity })
+      this.session.auraWindows.set(e.targetGuid, windows)
     }
   }
 
@@ -942,26 +1238,41 @@ export class RecorderStateMachine extends EventEmitter {
       return
 
     const relSecs = (e.timestamp.getTime() - this.session.matchStartedAt.getTime()) / 1000
-    const key = `${e.targetGuid}:${e.spellId}`
-    const active = this.session.activeCCs.get(key)
 
-    if (active !== undefined) {
-      const duration = Math.max(0, relSecs - active.startRelSecs)
-      // Back-fill duration on the corresponding timeline event.
-      if (active.timelineIndex >= 0) {
-        const ev = this.session.pendingTimeline[active.timelineIndex]
-        if (ev !== undefined) ev.duration = parseFloat(duration.toFixed(1))
+    if (SPELL_IDS_CC.has(e.spellId)) {
+      const key = `${e.targetGuid}:${e.spellId}`
+      const active = this.session.activeCCs.get(key)
+
+      if (active !== undefined) {
+        const duration = Math.max(0, relSecs - active.startRelSecs)
+        // Back-fill duration on the corresponding timeline event.
+        if (active.timelineIndex >= 0) {
+          const ev = this.session.pendingTimeline[active.timelineIndex]
+          if (ev !== undefined) ev.duration = parseFloat(duration.toFixed(1))
+        }
+        this.session.activeCCs.delete(key)
       }
-      this.session.activeCCs.delete(key)
+
+      // Update DR window: 18s from when the aura expired.
+      const drCategory = DR_CATEGORY[e.spellId]
+      if (drCategory !== undefined) {
+        const drKey = `${e.targetGuid}:${drCategory}`
+        const counter = this.session.drCounters.get(drKey)
+        if (counter !== undefined) {
+          counter.windowExpiresAt = relSecs + 18
+        }
+      }
     }
 
-    // Update DR window: 18s from when the aura expired.
-    const drCategory = DR_CATEGORY[e.spellId]
-    if (drCategory !== undefined) {
-      const drKey = `${e.targetGuid}:${drCategory}`
-      const counter = this.session.drCounters.get(drKey)
-      if (counter !== undefined) {
-        counter.windowExpiresAt = relSecs + 18
+    if (RecorderStateMachine.isTrackedAuraWindow(e.spellId)) {
+      const windows = this.session.auraWindows.get(e.targetGuid)
+      if (windows !== undefined) {
+        for (let i = windows.length - 1; i >= 0; i--) {
+          if (windows[i]!.spellId === e.spellId && windows[i]!.end === Infinity) {
+            windows[i]!.end = relSecs
+            break
+          }
+        }
       }
     }
   }
@@ -1115,6 +1426,7 @@ export class RecorderStateMachine extends EventEmitter {
 
     // Resolve any deferred COMBATANT_INFO
     if (e.casterName) this.tryResolvePendingCombatant(e.casterGuid, e.casterName)
+    if (e.targetName) this.tryResolvePendingCombatant(e.targetGuid, e.targetName)
 
     const relSecs = (e.timestamp.getTime() - this.session.matchStartedAt.getTime()) / 1000
     if (relSecs < 0) return
@@ -1126,6 +1438,14 @@ export class RecorderStateMachine extends EventEmitter {
     const cutoff = relSecs - 5
     const trimmed = cutoff > 0 ? hits.filter((h) => h.relSecs >= cutoff) : hits
     this.session.recentDamageByGuid.set(e.targetGuid, trimmed)
+
+    // Per-player meters (Details!/Skada-style Damage Done / Damage Taken).
+    if (e.casterName) {
+      this.session.dmgDoneByName.set(e.casterName, (this.session.dmgDoneByName.get(e.casterName) ?? 0) + e.amount)
+    }
+    if (e.targetName) {
+      this.session.dmgTakenByName.set(e.targetName, (this.session.dmgTakenByName.get(e.targetName) ?? 0) + e.amount)
+    }
 
     // Track damage for team charts — use GUID team assignment from COMBATANT_INFO
     const sec = Math.floor(relSecs)
@@ -1150,6 +1470,11 @@ export class RecorderStateMachine extends EventEmitter {
     const relSecs = (e.timestamp.getTime() - this.session.matchStartedAt.getTime()) / 1000
     if (relSecs < 0) return
 
+    // Per-player meter (Details!/Skada-style Healing Done).
+    if (e.casterName) {
+      this.session.healDoneByName.set(e.casterName, (this.session.healDoneByName.get(e.casterName) ?? 0) + e.amount)
+    }
+
     const sec = Math.floor(relSecs)
     const team = this.session.guidTeams.get(e.casterGuid)
     if (team === 1) {
@@ -1159,6 +1484,15 @@ export class RecorderStateMachine extends EventEmitter {
       this.session.enemyHealAccum += e.amount
       this.session.enemyHealSamples.push({ sec, total: this.session.enemyHealAccum })
     }
+  }
+
+  private onSpellAbsorb(e: SpellAbsorbEvent): void {
+    if (this.status !== 'recording' || this.session === null) return
+    if (e.casterName) this.tryResolvePendingCombatant(e.casterGuid, e.casterName)
+    if (!e.casterName) return
+
+    const total = this.session.absorbDoneByName.get(e.casterName) ?? 0
+    this.session.absorbDoneByName.set(e.casterName, total + e.amount)
   }
 
   // ---------------------------------------------------------------------------

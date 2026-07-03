@@ -20,8 +20,8 @@ const {
   ffmpegState,
   ffmpegPath,
   showFfmpegSection,
-  captureDevices,
-  selectedCaptureDevice,
+  captureSources,
+  selectedCaptureSource,
   canAdvance,
   init,
   detectWowPath,
@@ -299,14 +299,23 @@ async function handleComplete(): Promise<void> {
         <!-- Step 4: Homebrew + FFmpeg -->
         <template v-else-if="step === 4">
           <h2 class="text-lg font-medium text-white mb-1">
-            <template v-if="platform === 'win32'">FFmpeg</template>
-            <template v-else>Homebrew &amp; FFmpeg</template>
+            <template v-if="platform === 'win32'">
+              FFmpeg
+            </template>
+            <template v-else>
+              Homebrew &amp; FFmpeg
+            </template>
           </h2>
           <p class="text-sm text-zinc-400 mb-5">
             <template v-if="platform === 'win32'">
               FFmpeg captures your screen using DirectShow and a hardware encoder (NVENC, AMF, or
               QSV). Download it from
-              <button class="text-blue-400 hover:text-blue-300 underline" @click="() => window.electron.invoke('system:openUrl', { url: 'https://github.com/BtbN/FFmpeg-Builds/releases' })">BtbN FFmpeg Builds</button> and add it to your PATH, or place
+              <button
+                class="text-blue-400 hover:text-blue-300 underline"
+                @click="() => window.electron.invoke('system:openUrl', { url: 'https://github.com/BtbN/FFmpeg-Builds/releases' })"
+              >
+                BtbN FFmpeg Builds
+              </button> and add it to your PATH, or place
               <code class="text-xs bg-zinc-800 px-1 rounded">ffmpeg.exe</code> in
               <code class="text-xs bg-zinc-800 px-1 rounded">C:\ffmpeg\bin\</code>.
             </template>
@@ -345,7 +354,12 @@ async function handleComplete(): Promise<void> {
                 </code>
               </div>
               <p class="text-xs text-zinc-500 mt-2">
-                Or visit <button class="text-blue-400 hover:text-blue-300 underline" @click="() => window.electron.invoke('system:openUrl', { url: 'https://brew.sh' })">brew.sh</button> for instructions.
+                Or visit <button
+                  class="text-blue-400 hover:text-blue-300 underline"
+                  @click="() => window.electron.invoke('system:openUrl', { url: 'https://brew.sh' })"
+                >
+                  brew.sh
+                </button> for instructions.
               </p>
               <button
                 class="btn-secondary mt-3"
@@ -396,7 +410,12 @@ async function handleComplete(): Promise<void> {
                   </ul>
                   <p class="text-xs text-zinc-500 mb-1">
                     Download from
-                    <button class="text-blue-400 hover:text-blue-300 underline" @click="() => window.electron.invoke('system:openUrl', { url: 'https://github.com/BtbN/FFmpeg-Builds/releases' })">BtbN FFmpeg Builds</button>
+                    <button
+                      class="text-blue-400 hover:text-blue-300 underline"
+                      @click="() => window.electron.invoke('system:openUrl', { url: 'https://github.com/BtbN/FFmpeg-Builds/releases' })"
+                    >
+                      BtbN FFmpeg Builds
+                    </button>
                     and pick <code class="bg-zinc-800 px-1 rounded">ffmpeg-master-latest-win64-gpl.zip</code> (not the <em>-shared</em> variant).
                   </p>
                   <p class="text-xs text-zinc-600 mb-3">
@@ -433,53 +452,50 @@ async function handleComplete(): Promise<void> {
           </template>
         </template>
 
-        <!-- Step 5: capture device -->
+        <!-- Step 5: capture window -->
         <template v-else-if="step === 5">
-          <!-- Windows: window-title capture, no selection needed -->
-          <template v-if="platform === 'win32'">
-            <h2 class="text-lg font-medium text-white mb-1">
-              Screen capture
-            </h2>
-            <p class="text-sm text-zinc-400 mb-5">
-              On Windows the app captures the World of Warcraft window directly,
-              regardless of which monitor it's on. No configuration needed.
-            </p>
-            <div class="flex items-center gap-3 px-4 py-3 rounded-lg border border-zinc-700 bg-zinc-900">
-              <span class="text-zinc-300 text-sm">World of Warcraft window</span>
-              <span class="ml-auto text-xs text-zinc-500">auto-detected</span>
-            </div>
-          </template>
-
-          <!-- macOS: pick AVFoundation screen device -->
-          <template v-else>
-            <h2 class="text-lg font-medium text-white mb-1">
-              Select your WoW monitor
-            </h2>
-            <p class="text-sm text-zinc-400 mb-5">
-              Choose the display where you play WoW. Only that screen will be recorded.
-            </p>
-            <div class="space-y-2">
-              <button
-                v-for="dev in captureDevices"
-                :key="dev.index"
-                class="w-full flex items-center gap-3 px-4 py-3 rounded-lg border transition-colors text-left"
-                :class="selectedCaptureDevice?.index === dev.index
-                  ? 'bg-blue-600 border-blue-500'
-                  : 'bg-zinc-900 border-zinc-700 hover:border-zinc-500'"
-                @click="selectedCaptureDevice = dev"
+          <h2 class="text-lg font-medium text-white mb-1">
+            Capture window
+          </h2>
+          <p class="text-sm text-zinc-400 mb-5">
+            The app auto-detects the World of Warcraft window and records it directly —
+            no configuration needed. Pick a specific window below only if you run
+            multiple WoW clients or want to override the detected one (this can also
+            be changed later in Settings).
+          </p>
+          <div class="space-y-2">
+            <button
+              class="w-full flex items-center gap-3 px-4 py-3 rounded-lg border transition-colors text-left"
+              :class="selectedCaptureSource === null
+                ? 'bg-blue-600 border-blue-500'
+                : 'bg-zinc-900 border-zinc-700 hover:border-zinc-500'"
+              @click="selectedCaptureSource = null"
+            >
+              <span class="text-base">🎯</span>
+              <span class="flex-1 text-sm text-zinc-200">Auto-detect World of Warcraft window</span>
+              <span
+                class="text-xs"
+                :class="captureSources.some((s) => s.isLikelyWow) ? 'text-green-400' : 'text-zinc-500'"
+              >{{ captureSources.some((s) => s.isLikelyWow) ? 'found' : 'not found yet' }}</span>
+            </button>
+            <button
+              v-for="src in captureSources"
+              :key="src.id"
+              class="w-full flex items-center gap-3 px-4 py-3 rounded-lg border transition-colors text-left"
+              :class="selectedCaptureSource?.id === src.id
+                ? 'bg-blue-600 border-blue-500'
+                : 'bg-zinc-900 border-zinc-700 hover:border-zinc-500'"
+              @click="selectedCaptureSource = src"
+            >
+              <img
+                v-if="src.thumbnailDataUrl"
+                :src="src.thumbnailDataUrl"
+                class="w-12 h-7 object-cover rounded bg-black/40"
               >
-                <span class="text-base">🖥</span>
-                <span class="flex-1 text-sm text-zinc-200">{{ dev.name }}</span>
-                <span class="text-xs text-zinc-400 font-mono">{{ dev.resolution }}</span>
-              </button>
-              <p
-                v-if="captureDevices.length === 0"
-                class="text-sm text-zinc-500"
-              >
-                Loading displays…
-              </p>
-            </div>
-          </template>
+              <span class="flex-1 text-sm text-zinc-200 truncate">{{ src.name }}</span>
+              <span class="text-xs text-zinc-400">{{ src.kind }}</span>
+            </button>
+          </div>
         </template>
 
         <!-- Step 4 (macOS) / Step 5 (Windows): Ready -->
@@ -535,12 +551,11 @@ async function handleComplete(): Promise<void> {
               }}</span>
             </div>
             <div
-              v-if="selectedCaptureDevice"
               class="flex items-center gap-3 p-2.5 rounded-lg bg-zinc-900 border border-zinc-800"
             >
               <span class="text-green-400 text-base">✓</span>
-              <span class="text-sm text-zinc-300">Monitor</span>
-              <span class="text-xs text-zinc-500 ml-auto">{{ selectedCaptureDevice.name }} — {{ selectedCaptureDevice.resolution }}</span>
+              <span class="text-sm text-zinc-300">Capture window</span>
+              <span class="text-xs text-zinc-500 ml-auto">{{ selectedCaptureSource?.name ?? 'Auto-detect' }}</span>
             </div>
           </div>
         </template>

@@ -9,10 +9,11 @@ import { registerConfigIpc } from './ipc/config.ipc'
 import { registerLogAnalysisIpc } from './ipc/logAnalysis.ipc'
 
 import { CombatLogWatcher } from './combatlog/CombatLogWatcher'
-import { ScreenRecorder } from './recorder/ScreenRecorder'
+import { WindowCaptureRecorder } from './recorder/WindowCaptureRecorder'
 import { RecorderStateMachine } from './recorder/RecorderStateMachine'
 import { StorageManager } from './storage/StorageManager'
 import { readAddonCharacterInfo } from './addon/SavedVarsReader'
+import { resolveFfmpegPath } from './system/ffmpeg'
 
 import type { AppConfig } from '@shared/ipc.types'
 import {
@@ -21,7 +22,7 @@ import {
   DEFAULT_STORAGE_PATH,
   DEFAULT_VIDEO_BITRATE_KBPS,
   DEFAULT_VIDEO_FPS,
-  DEFAULT_CAPTURE_DEVICE,
+  DEFAULT_CAPTURE_SOURCE_HINT,
   DEFAULT_VIDEO_RESOLUTION,
   DEFAULT_MINIMIZE_TO_TRAY
 } from '@shared/constants'
@@ -40,7 +41,7 @@ const configStore = new Store<AppConfig>({
     storagePath: DEFAULT_STORAGE_PATH,
     videoBitrate: DEFAULT_VIDEO_BITRATE_KBPS,
     videoFps: DEFAULT_VIDEO_FPS,
-    captureDevice: DEFAULT_CAPTURE_DEVICE,
+    captureSourceHint: DEFAULT_CAPTURE_SOURCE_HINT,
     videoResolution: DEFAULT_VIDEO_RESOLUTION,
     autoCleanupDays: null,
     autoCleanupMaxGb: null,
@@ -60,7 +61,7 @@ if (configStore.get('videoFps') === 60) {
 
 function createPipeline(): {
   watcher: CombatLogWatcher
-  recorder: ScreenRecorder
+  recorder: WindowCaptureRecorder
   stateMachine: RecorderStateMachine
   storageManager: StorageManager
 } {
@@ -70,15 +71,16 @@ function createPipeline(): {
   const rawDir = join(storagePath, 'raw')
 
   const watcher = new CombatLogWatcher({ dir: logsDir, glob: COMBAT_LOG_GLOB })
-  const recorder = new ScreenRecorder()
+  const recorder = new WindowCaptureRecorder()
   const localPlayer = readAddonCharacterInfo(wowPath)
   const stateMachine = new RecorderStateMachine(watcher, recorder, {
     rawRecordingsDir: rawDir,
     localPlayerName: localPlayer?.fullName ?? null,
+    localPlayerGuid: localPlayer?.guid ?? null,
     recorder: {
       bitrateKbps: configStore.get('videoBitrate'),
       fps: configStore.get('videoFps'),
-      captureDevice: configStore.get('captureDevice'),
+      sourceHint: configStore.get('captureSourceHint'),
       resolution: configStore.get('videoResolution')
     }
   })
@@ -88,7 +90,7 @@ function createPipeline(): {
   stateMachine.on('processingRequired', (event) => {
     let ffmpegPath: string
     try {
-      ffmpegPath = ScreenRecorder.resolveFfmpegPath()
+      ffmpegPath = resolveFfmpegPath()
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       console.error('[Main] Cannot post-process recording: FFmpeg not found.', message)
@@ -211,14 +213,14 @@ app.whenReady().then(() => {
 
   const { recorder, stateMachine, storageManager } = createPipeline()
 
-  // Keep recorder options in sync with config changes (e.g. screen selection in Settings).
-  const recorderConfigKeys = ['videoBitrate', 'videoFps', 'captureDevice', 'videoResolution'] as const
+  // Keep recorder options in sync with config changes (e.g. window selection in Settings).
+  const recorderConfigKeys = ['videoBitrate', 'videoFps', 'captureSourceHint', 'videoResolution'] as const
   for (const key of recorderConfigKeys) {
     configStore.onDidChange(key, () => {
       stateMachine.updateRecorderOptions({
         bitrateKbps: configStore.get('videoBitrate'),
         fps: configStore.get('videoFps'),
-        captureDevice: configStore.get('captureDevice'),
+        sourceHint: configStore.get('captureSourceHint'),
         resolution: configStore.get('videoResolution')
       })
     })
@@ -252,9 +254,10 @@ app.whenReady().then(() => {
     }
   })
 
-  // Stop any active FFmpeg capture before quitting so macOS releases the
-  // screen recording indicator immediately (otherwise the orphaned FFmpeg
-  // process keeps holding the AVFoundation session).
+  // Stop any active capture before quitting so macOS releases the screen recording
+  // indicator immediately and the hidden capture window/write stream are torn down
+  // cleanly (mainWindow stays open throughout, so window-all-closed doesn't fire
+  // prematurely while the hidden window is being destroyed).
   app.on('before-quit', (event) => {
     isQuitting = true
     if (!recorder.isRecording()) return

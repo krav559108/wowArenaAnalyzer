@@ -8,12 +8,11 @@ import { ref } from 'vue'
 const {
   config,
   loading,
-  platform,
   restartRequired,
   bitratePreset,
   customBitrate,
-  captureDevices,
-  devicesLoading,
+  captureSources,
+  sourcesLoading,
   addonAlreadyInstalled,
   cleanupDaysEnabled,
   cleanupDays,
@@ -24,9 +23,11 @@ const {
   pickStoragePath,
   setFps,
   setResolution,
-  selectCaptureDevice,
+  selectCaptureSource,
+  selectAutoDetect,
   installAddon,
   relaunch,
+  rerunSetupWizard,
 } = useSettings()
 
 const saveFlash = ref(false)
@@ -38,6 +39,15 @@ function handleSave(): void {
 const addonInstallStatus = ref<'idle' | 'installing' | 'done' | 'error'>('idle')
 const addonInstallError = ref('')
 const showManualInstall = ref(false)
+
+const confirmingRerunWizard = ref(false)
+async function handleRerunSetupWizard(): Promise<void> {
+  if (!confirmingRerunWizard.value) {
+    confirmingRerunWizard.value = true
+    return
+  }
+  await rerunSetupWizard()
+}
 
 async function handleInstallAddon(): Promise<void> {
   addonInstallStatus.value = 'installing'
@@ -294,75 +304,78 @@ const BITRATE_PRESETS = [
           </p>
         </div>
 
-        <!-- Capture device -->
+        <!-- Capture source -->
         <div>
           <p class="text-xs text-zinc-400 mb-2">
-            Screen capture device
+            Capture window
           </p>
-          <!-- Windows: WoW window is always captured by title, no selection needed -->
-          <template v-if="platform === 'win32'">
-            <div class="flex items-center gap-2 px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-xs text-zinc-300">
-              <span class="flex-1">World of Warcraft window</span>
-              <span class="text-zinc-500">auto-detected</span>
-            </div>
-            <p class="text-xs text-zinc-600 mt-1.5">
-              On Windows the app captures the WoW window directly — works on any monitor.
-            </p>
-          </template>
-          <!-- macOS: pick AVFoundation screen device -->
-          <template v-else>
-            <p
-              v-if="devicesLoading"
-              class="text-xs text-zinc-600"
+          <p
+            v-if="sourcesLoading"
+            class="text-xs text-zinc-600"
+          >
+            Detecting windows…
+          </p>
+          <div
+            v-else-if="captureSources.length === 0"
+            class="text-xs text-zinc-600"
+          >
+            No windows found — ensure Screen Recording permission is granted.
+          </div>
+          <div
+            v-else
+            class="space-y-1.5"
+          >
+            <!-- Auto-detect (default) -->
+            <button
+              class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs border transition-colors text-left"
+              :class="
+                config.captureSourceHint === 'auto'
+                  ? 'bg-blue-600 border-blue-500 text-white'
+                  : 'bg-zinc-900 border-zinc-700 text-zinc-300 hover:border-zinc-500'
+              "
+              @click="selectAutoDetect"
             >
-              Detecting devices…
-            </p>
-            <div
-              v-else-if="captureDevices.length === 0"
-              class="text-xs text-zinc-600"
-            >
-              No devices found — ensure FFmpeg is installed.
-            </div>
-            <div
-              v-else
-              class="space-y-1.5"
-            >
-              <button
-                v-for="dev in captureDevices"
-                :key="dev.index"
-                class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs border transition-colors text-left"
-                :class="
-                  config.captureDevice === String(dev.index)
-                    ? 'bg-blue-600 border-blue-500 text-white'
-                    : dev.isScreen
-                      ? 'bg-zinc-900 border-zinc-700 text-zinc-300 hover:border-zinc-500'
-                      : 'bg-zinc-900/50 border-zinc-800 text-zinc-500'
-                "
-                @click="selectCaptureDevice(dev)"
-              >
-                <span class="w-5 text-center flex-shrink-0 font-mono">{{ dev.index }}</span>
-                <span class="flex-1 truncate">{{ dev.name }}</span>
-                <span
-                  v-if="dev.isScreen && dev.resolution"
-                  class="flex-shrink-0 text-xs opacity-60"
-                >{{ dev.resolution }}</span>
-                <span
-                  v-if="dev.isScreen && dev.isPrimary !== undefined"
-                  class="flex-shrink-0 text-xs px-1.5 py-0.5 rounded"
-                  :class="config.captureDevice === String(dev.index) ? 'bg-white/20' : 'bg-zinc-700 text-zinc-400'"
-                >{{ dev.isPrimary ? 'primary' : 'external' }}</span>
-                <span
-                  v-else-if="!dev.isScreen"
-                  class="flex-shrink-0 text-xs opacity-50"
-                >camera</span>
-              </button>
-            </div>
-            <p class="text-xs text-zinc-600 mt-1.5">
-              Select the "Capture screen" device — not your webcam or Continuity Camera.
-            </p>
-          </template>
-        </div>
+              <span class="flex-1">Auto-detect World of Warcraft window</span>
+              <span
+                v-if="captureSources.some((s) => s.isLikelyWow)"
+                class="flex-shrink-0 text-xs px-1.5 py-0.5 rounded"
+                :class="config.captureSourceHint === 'auto' ? 'bg-white/20' : 'bg-green-900 text-green-400'"
+              >found</span>
+              <span
+                v-else
+                class="flex-shrink-0 text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-500"
+              >not found</span>
+            </button>
 
+            <!-- Manual override list -->
+            <button
+              v-for="src in captureSources"
+              :key="src.id"
+              class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs border transition-colors text-left"
+              :class="
+                config.captureSourceHint === src.name
+                  ? 'bg-blue-600 border-blue-500 text-white'
+                  : 'bg-zinc-900 border-zinc-700 text-zinc-300 hover:border-zinc-500'
+              "
+              @click="selectCaptureSource(src)"
+            >
+              <img
+                v-if="src.thumbnailDataUrl"
+                :src="src.thumbnailDataUrl"
+                class="w-10 h-6 object-cover rounded flex-shrink-0 bg-black/40"
+              >
+              <span class="flex-1 truncate">{{ src.name }}</span>
+              <span
+                class="flex-shrink-0 text-xs px-1.5 py-0.5 rounded"
+                :class="config.captureSourceHint === src.name ? 'bg-white/20' : 'bg-zinc-700 text-zinc-400'"
+              >{{ src.kind }}</span>
+            </button>
+          </div>
+          <p class="text-xs text-zinc-600 mt-1.5">
+            Auto-detect works for most setups. Pick a specific window manually if
+            multiple WoW clients are open or the wrong window is captured.
+          </p>
+        </div>
       </section>
 
       <!-- ---------------------------------------------------------------- -->
@@ -398,7 +411,7 @@ const BITRATE_PRESETS = [
         >
           {{
             addonInstallStatus === 'installing' ? 'Installing…'
-              : addonInstallStatus === 'done' ? 'Installed ✓'
+            : addonInstallStatus === 'done' ? 'Installed ✓'
               : 'Install Addon'
           }}
         </button>
@@ -529,6 +542,28 @@ const BITRATE_PRESETS = [
         <p class="text-xs text-zinc-600 mt-2">
           Clicking × hides the app to the system tray instead of quitting. Right-click the tray icon to quit.
         </p>
+      </section>
+
+      <!-- ---------------------------------------------------------------- -->
+      <!-- Setup                                                             -->
+      <!-- ---------------------------------------------------------------- -->
+      <section class="px-4 py-4 border-t border-zinc-800/60">
+        <h3 class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">
+          Setup
+        </h3>
+        <p class="text-xs text-zinc-400 mb-3">
+          Something misconfigured — wrong capture window, addon not connected, permission
+          issue? Re-run the guided setup checklist instead of hunting through these settings.
+        </p>
+        <button
+          class="text-xs px-3 py-1.5 rounded-lg border transition-colors"
+          :class="confirmingRerunWizard
+            ? 'bg-amber-900/40 border-amber-700 text-amber-300 hover:bg-amber-900/60'
+            : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700'"
+          @click="handleRerunSetupWizard"
+        >
+          {{ confirmingRerunWizard ? 'Click again to relaunch and re-run setup' : 'Re-run setup wizard' }}
+        </button>
       </section>
     </div>
   </div>

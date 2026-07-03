@@ -10,13 +10,42 @@ import SettingsView from '@/pages/SettingsView.vue'
 const appStore = useAppStore()
 const recordingsStore = useRecordingsStore()
 
-const { status, currentZone, lastError } = storeToRefs(appStore)
+const { status, currentZone, lastError, recordingStartedAt } = storeToRefs(appStore)
 const { selected } = storeToRefs(recordingsStore)
 
 const { deleteRecording, deleteGroup, openFolder } = useMainView()
 
 const settingsOpen = ref(false)
 const activeTab = ref<'2v2' | '3v3' | 'solo-shuffle' | 'skirmish'>('2v2')
+
+// -------------------------------------------------------------------------
+// Live recording elapsed-time indicator — ticks once per second while
+// status === 'recording', driven off appStore.recordingStartedAt.
+// -------------------------------------------------------------------------
+
+const nowTick = ref(Date.now())
+let elapsedTimer: ReturnType<typeof setInterval> | null = null
+
+const elapsedLabel = computed(() => {
+  if (recordingStartedAt.value === null) return null
+  const secs = Math.max(0, Math.floor((nowTick.value - recordingStartedAt.value) / 1000))
+  const m = Math.floor(secs / 60)
+  const s = secs % 60
+  return `${m}:${String(s).padStart(2, '0')}`
+})
+
+// -------------------------------------------------------------------------
+// Error banner
+// -------------------------------------------------------------------------
+
+const errorCopied = ref(false)
+
+async function copyError(): Promise<void> {
+  if (lastError.value === null) return
+  await navigator.clipboard.writeText(lastError.value)
+  errorCopied.value = true
+  setTimeout(() => { errorCopied.value = false }, 1500)
+}
 
 const BRACKET_TABS = [
   { key: '2v2' as const, label: '2v2' },
@@ -82,10 +111,12 @@ onMounted(() => {
   unsubAddon = window.electron.on('addon:statusChanged', applyAddonStatus)
   // Slow fallback poll in case the file was already current on mount
   addonPollTimer = setInterval(() => { void refreshAddonStatus() }, 30000)
+  elapsedTimer = setInterval(() => { nowTick.value = Date.now() }, 1000)
 })
 
 onUnmounted(() => {
   if (addonPollTimer !== null) clearInterval(addonPollTimer)
+  if (elapsedTimer !== null) clearInterval(elapsedTimer)
   unsubAddon?.()
 })
 
@@ -100,7 +131,7 @@ const statusLabel = computed(() => {
     case 'waiting':
       return `Watching${currentZone.value ? ' · ' + currentZone.value : ''}`
     case 'recording':
-      return `Recording${currentZone.value ? ' · ' + currentZone.value : ''}`
+      return `Recording${elapsedLabel.value ? ' · ' + elapsedLabel.value : ''}${currentZone.value ? ' · ' + currentZone.value : ''}`
     case 'processing':
       return 'Processing…'
     case 'error':
@@ -211,6 +242,61 @@ const statusTextClass = computed(() => {
     <!-- Main layout                                                        -->
     <!-- ----------------------------------------------------------------- -->
     <div class="flex flex-1 min-h-0 relative">
+      <!-- Error banner — floats above everything so a recorder error is never missed,
+           regardless of which panel/tab is active. -->
+      <Transition
+        enter-active-class="transition-all duration-200 ease-out"
+        enter-from-class="opacity-0 -translate-y-2"
+        enter-to-class="opacity-100 translate-y-0"
+        leave-active-class="transition-all duration-150 ease-in"
+        leave-from-class="opacity-100 translate-y-0"
+        leave-to-class="opacity-0 -translate-y-2"
+      >
+        <div
+          v-if="lastError"
+          class="absolute top-3 right-3 z-30 w-96 max-w-[calc(100%-1.5rem)] rounded-lg border border-red-800/60 bg-red-950/95 backdrop-blur-sm shadow-2xl p-3"
+        >
+          <div class="flex items-start gap-2">
+            <span class="text-red-400 text-sm mt-0.5 flex-shrink-0">⚠</span>
+            <div class="flex-1 min-w-0">
+              <p class="text-xs font-medium text-red-300 mb-1">
+                Recording error
+              </p>
+              <p class="text-xs text-red-200/90 break-words">
+                {{ lastError }}
+              </p>
+            </div>
+            <button
+              class="flex-shrink-0 text-red-400 hover:text-red-200 transition-colors"
+              title="Dismiss"
+              @click="appStore.clearError()"
+            >
+              <svg
+                class="w-3.5 h-3.5"
+                viewBox="0 0 16 16"
+                fill="currentColor"
+              >
+                <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z" />
+              </svg>
+            </button>
+          </div>
+          <div class="flex gap-2 mt-2 pl-6">
+            <button
+              class="text-xs px-2 py-1 rounded bg-red-900/60 hover:bg-red-800/60 text-red-200 transition-colors"
+              @click="copyError"
+            >
+              {{ errorCopied ? 'Copied ✓' : 'Copy' }}
+            </button>
+            <button
+              class="text-xs px-2 py-1 rounded bg-red-900/60 hover:bg-red-800/60 text-red-200 transition-colors"
+              @click="appStore.clearError()"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      </Transition>
+
       <!-- Tab bar -->
       <div
         class="absolute top-0 left-0 right-0 flex items-center border-b border-zinc-800/60 bg-[#0f0f0f] z-10"

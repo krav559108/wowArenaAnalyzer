@@ -6,7 +6,7 @@ import type {
   ProcessingRequiredEvent
 } from '../../src/main/recorder/RecorderStateMachine'
 import type { CombatLogWatcher } from '../../src/main/combatlog/CombatLogWatcher'
-import type { ScreenRecorder } from '../../src/main/recorder/ScreenRecorder'
+import type { WindowCaptureRecorder } from '../../src/main/recorder/WindowCaptureRecorder'
 import type { ParserEventMap } from '../../src/main/combatlog/CombatLogParser'
 import { UNIT_FLAG_REACTION_HOSTILE } from '../../src/main/combatlog/CombatLogParser'
 
@@ -16,7 +16,11 @@ import { UNIT_FLAG_REACTION_HOSTILE } from '../../src/main/combatlog/CombatLogPa
 
 // Fake CombatLogWatcher that lets tests fire parser events directly.
 class FakeWatcher extends EventEmitter {
-  public readonly parser = new EventEmitter()
+  public readonly parser = Object.assign(new EventEmitter(), {
+    // Mirrors CombatLogParser.nameCache (guid → name) — populated by tests that need
+    // to exercise RecorderStateMachine.resolveLocalTeam().
+    nameCache: new Map<string, string>()
+  })
 
   onParser<K extends keyof ParserEventMap>(
     event: K,
@@ -31,7 +35,7 @@ class FakeWatcher extends EventEmitter {
   }
 }
 
-// Fake ScreenRecorder whose start/stop behaviour is controlled per test.
+// Fake WindowCaptureRecorder whose start/stop behaviour is controlled per test.
 class FakeRecorder extends EventEmitter {
   private recording = false
 
@@ -92,8 +96,12 @@ const matchStartSS = {
   timestamp: new Date('2026-04-15T20:00:15Z')
 }
 
+// winningTeam matches matchStart2v2/matchStartSS's localTeam (0) — the state machine
+// falls back to that unreliable field when it can't resolve the local player's real
+// team via COMBATANT_INFO (no localPlayerName configured in these tests), so this
+// still resolves to WIN.
 const matchEnd = {
-  result: 'WIN' as const,
+  winningTeam: 0,
   durationSecs: 120,
   timestamp: new Date('2026-04-15T20:02:15Z')
 }
@@ -119,7 +127,7 @@ function buildMachine(
   }
   return new RecorderStateMachine(
     watcher as unknown as CombatLogWatcher,
-    recorder as unknown as ScreenRecorder,
+    recorder as unknown as WindowCaptureRecorder,
     options
   )
 }
@@ -182,6 +190,253 @@ describe('RecorderStateMachine — idle → waiting → recording → processing
     expect(ev.zoneName).toBe('Nagrand Arena')
     expect(ev.durationSecs).toBe(120)
     expect(ev.roundNumber).toBeUndefined()
+  })
+
+  // Regression test for a real bug: ARENA_MATCH_START's field-3 "localTeam" was found
+  // to stay constant (e.g. always 1) across an entire 3v3 session in real combat logs,
+  // unrelated to the player's actual per-match team — while COMBATANT_INFO's team field
+  // does vary correctly match to match. Trusting field 3 flipped WIN/LOSS. The state
+  // machine must prefer COMBATANT_INFO (resolved via the addon-reported player name)
+  // over the unreliable ARENA_MATCH_START field whenever it's available.
+  it('resolves WIN/LOSS from COMBATANT_INFO, not from the unreliable ARENA_MATCH_START field', async () => {
+    const w = new FakeWatcher()
+    const r = new FakeRecorder()
+    const m = buildMachine(w, r, { localPlayerName: 'Critical-Ravencrest-EU' })
+    w.parser.nameCache.set('Player-1329-0A8E2A98', 'Critical-Ravencrest-EU')
+
+    w.fireParser('arenaZoneEntered', zoneEntered)
+    await flushPromises()
+    // ARENA_MATCH_START field 3 claims localTeam=1 (the misleading, constant value seen
+    // in real logs) — if trusted, winningTeam=1 below would incorrectly resolve to WIN.
+    w.fireParser('arenaMatchStart', { ...matchStart2v2, localTeam: 1 })
+    // COMBATANT_INFO reports the player's real team as 0 for this match.
+    w.fireParser('combatantInfo', {
+      playerGuid: 'Player-1329-0A8E2A98',
+      playerName: 'Critical-Ravencrest-EU',
+      team: 0,
+      personalRating: 1932,
+      specId: null,
+      timestamp: matchStart2v2.timestamp
+    })
+
+    const processingEvents: ProcessingRequiredEvent[] = []
+    m.on('processingRequired', (e) => processingEvents.push(e))
+
+    w.fireParser('arenaMatchEnd', { ...matchEnd, winningTeam: 1 })
+    await flushPromises()
+
+    // winningTeam(1) !== real local team(0) → LOSS, matching the rating-drop-confirmed
+    // real-world outcome, despite ARENA_MATCH_START's field 3 saying localTeam=1 (which
+    // would have produced a false WIN under the old logic).
+    expect(processingEvents[0]?.result).toBe('LOSS')
+  })
+
+  // Regression test for a second real bug found after the fix above: the addon's
+  // SavedVars stores the player name WITHOUT the realm's region suffix (e.g.
+  // "Critical-Ravencrest"), while the combat log always includes it
+  // ("Critical-Ravencrest-EU") — so exact name matching in resolveLocalTeam()
+  // silently failed 100% of the time, forcing the unreliable field-3 fallback anyway.
+  // localPlayerGuid (also provided by the addon) must be used instead and must not be
+  // affected by this name mismatch.
+  it('resolves WIN/LOSS via localPlayerGuid even when localPlayerName does not match the combat log name', async () => {
+    const w = new FakeWatcher()
+    const r = new FakeRecorder()
+    const m = buildMachine(w, r, {
+      // Addon-reported name omits "-EU" — would never match the combat log's name below.
+      localPlayerName: 'Critical-Ravencrest',
+      localPlayerGuid: 'Player-1329-0A8E2A98'
+    })
+    // Deliberately do NOT populate nameCache with a matching name, to prove the GUID
+    // path doesn't depend on name resolution at all.
+
+    w.fireParser('arenaZoneEntered', zoneEntered)
+    await flushPromises()
+    w.fireParser('arenaMatchStart', { ...matchStart2v2, localTeam: 1 })
+    w.fireParser('combatantInfo', {
+      playerGuid: 'Player-1329-0A8E2A98',
+      playerName: '',
+      team: 0,
+      personalRating: 1932,
+      specId: null,
+      timestamp: matchStart2v2.timestamp
+    })
+
+    const processingEvents: ProcessingRequiredEvent[] = []
+    m.on('processingRequired', (e) => processingEvents.push(e))
+
+    w.fireParser('arenaMatchEnd', { ...matchEnd, winningTeam: 1 })
+    await flushPromises()
+
+    expect(processingEvents[0]?.result).toBe('LOSS')
+  })
+
+  // Regression test for a real bug: team composition ("Your Team" / "Enemy Team" in
+  // VideoPlayer.vue) was derived from a per-event target/caster reaction-flag
+  // heuristic when metadata.teamComp/enemyComp were empty — which they always were,
+  // since RecorderStateMachine never populated them. That heuristic breaks for spells
+  // like Mind Control: WoW flips the mind-controlled unit's hostile/friendly flag for
+  // the duration of the control, so a single successful MC event tags the enemy target
+  // as 'player', and the heuristic's tie-break favored that over several correct
+  // 'enemy' signals from the same player's interrupts elsewhere in the match — pulling
+  // an enemy onto "Your Team". teamComp/enemyComp must instead come straight from
+  // COMBATANT_INFO (guidTeams), which is never affected by mid-match flag flips.
+  it('resolves teamComp/enemyComp from COMBATANT_INFO, independent of event target-flag quirks', async () => {
+    const w = new FakeWatcher()
+    const r = new FakeRecorder()
+    const m = buildMachine(w, r, {
+      localPlayerName: 'Critical-Ravencrest-EU',
+      localPlayerGuid: 'Player-1329-0A8E2A98'
+    })
+    w.fireParser('arenaZoneEntered', zoneEntered)
+    await flushPromises()
+    w.fireParser('arenaMatchStart', matchStart2v2)
+
+    const roster: Array<[string, string, number]> = [
+      ['Player-1329-0A8E2A98', 'Critical-Ravencrest-EU', 0],
+      ['Player-2-teammate', 'Teammate-Realm-EU', 0],
+      ['Player-3-enemy', 'EnemyDK-Realm-EU', 1]
+    ]
+    // In the real parser, nameCache is populated from any event's srcGUID/srcName or
+    // dstGUID/dstName fields (independent of COMBATANT_INFO) — simulate that here.
+    for (const [guid, name] of roster) {
+      w.parser.nameCache.set(guid, name)
+    }
+    for (const [guid, name, team] of roster) {
+      w.fireParser('combatantInfo', {
+        playerGuid: guid,
+        playerName: name,
+        team,
+        personalRating: 2000,
+        specId: null,
+        timestamp: matchStart2v2.timestamp
+      })
+    }
+
+    const processingEvents: ProcessingRequiredEvent[] = []
+    m.on('processingRequired', (e) => processingEvents.push(e))
+
+    w.fireParser('arenaMatchEnd', { ...matchEnd, winningTeam: 0 })
+    await flushPromises()
+
+    const ev = processingEvents[0]
+    expect(ev?.teamComp.sort()).toEqual(['Critical-Ravencrest-EU', 'Teammate-Realm-EU'].sort())
+    expect(ev?.enemyComp).toEqual(['EnemyDK-Realm-EU'])
+  })
+
+  it('accumulates SPELL_ABSORBED amounts per shield-caster into playerAbsorb', async () => {
+    const w = new FakeWatcher()
+    const r = new FakeRecorder()
+    const m = buildMachine(w, r)
+
+    w.fireParser('arenaZoneEntered', zoneEntered)
+    await flushPromises()
+    w.fireParser('arenaMatchStart', matchStart2v2)
+
+    w.fireParser('spellAbsorb', {
+      casterGuid: 'Player-priest',
+      casterName: 'Healer-EU',
+      amount: 5000,
+      timestamp: matchStart2v2.timestamp
+    })
+    w.fireParser('spellAbsorb', {
+      casterGuid: 'Player-priest',
+      casterName: 'Healer-EU',
+      amount: 3000,
+      timestamp: matchStart2v2.timestamp
+    })
+
+    const processingEvents: ProcessingRequiredEvent[] = []
+    m.on('processingRequired', (e) => processingEvents.push(e))
+
+    w.fireParser('arenaMatchEnd', matchEnd)
+    await flushPromises()
+
+    expect(processingEvents[0]?.playerAbsorb).toEqual({ 'Healer-EU': 8000 })
+  })
+
+  it('attaches casterHpPct to defensive events from the nearest preceding UNIT_HEALTH sample', async () => {
+    const w = new FakeWatcher()
+    const r = new FakeRecorder()
+    const m = buildMachine(w, r)
+
+    w.fireParser('arenaZoneEntered', zoneEntered)
+    await flushPromises()
+    w.fireParser('arenaMatchStart', matchStart2v2)
+
+    w.fireParser('unitHealth', {
+      unitGuid: 'Player-mage',
+      unitName: 'Mage-EU',
+      hp: 2500,
+      maxHp: 10000,
+      timestamp: new Date(matchStart2v2.timestamp.getTime() + 5000)
+    })
+    // Ice Block (45438) is in SPELL_IDS_DEFENSIVE — self-cast, caster === target.
+    w.fireParser('spellCast', {
+      casterGuid: 'Player-mage',
+      casterName: 'Mage-EU',
+      targetGuid: 'Player-mage',
+      targetName: 'Mage-EU',
+      targetFlags: 0,
+      spellId: 45438,
+      spellName: 'Ice Block',
+      eventCategory: 'defensive',
+      timestamp: new Date(matchStart2v2.timestamp.getTime() + 6000)
+    })
+
+    const processingEvents: ProcessingRequiredEvent[] = []
+    m.on('processingRequired', (e) => processingEvents.push(e))
+
+    w.fireParser('arenaMatchEnd', matchEnd)
+    await flushPromises()
+
+    const defensiveEvent = processingEvents[0]?.timeline.find((ev) => ev.type === 'defensive')
+    expect(defensiveEvent?.casterHpPct).toBe(25)
+  })
+
+  it('warns when the rating-delta sign disagrees with the recorded result (diagnostic only)', async () => {
+    const w = new FakeWatcher()
+    const r = new FakeRecorder()
+    buildMachine(w, r, {
+      localPlayerName: 'Critical-Ravencrest',
+      localPlayerGuid: 'Player-1329-0A8E2A98'
+    })
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    // Match 1: recorded as WIN (winningTeam matches local team 0).
+    w.fireParser('arenaZoneEntered', zoneEntered)
+    await flushPromises()
+    w.fireParser('arenaMatchStart', matchStart2v2)
+    w.fireParser('combatantInfo', {
+      playerGuid: 'Player-1329-0A8E2A98',
+      playerName: '',
+      team: 0,
+      personalRating: 1932,
+      specId: null,
+      timestamp: matchStart2v2.timestamp
+    })
+    w.fireParser('arenaMatchEnd', { ...matchEnd, winningTeam: 0 })
+    await flushPromises()
+
+    // Match 2 starts; the local player's rating DROPPED (1932 -> 1920) despite match 1
+    // being recorded as a WIN — a genuine mismatch that should surface as a warning.
+    w.fireParser('arenaZoneEntered', zoneEntered)
+    await flushPromises()
+    w.fireParser('arenaMatchStart', matchStart2v2)
+    w.fireParser('combatantInfo', {
+      playerGuid: 'Player-1329-0A8E2A98',
+      playerName: '',
+      team: 0,
+      personalRating: 1920,
+      specId: null,
+      timestamp: matchStart2v2.timestamp
+    })
+
+    const warnedMismatch = warnSpy.mock.calls.some((call) =>
+      String(call[0]).includes('Rating-delta cross-check MISMATCH')
+    )
+    expect(warnedMismatch).toBe(true)
+
+    warnSpy.mockRestore()
   })
 
   it('returns to idle after processing completes (2v2)', async () => {

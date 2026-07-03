@@ -13,10 +13,10 @@
 // Library operations:
 //   getRecordings()          — scan storage directory, return all Recording[]
 //   deleteRecording(id)      — remove a recording directory
-//   findOrphanedRecordings() — directories that have recording.mp4 but no metadata.json
+//   findOrphanedRecordings() — directories that have a recording video but no metadata.json
 
 import { promises as fs } from 'fs'
-import { join } from 'path'
+import { join, extname } from 'path'
 import { spawn } from 'child_process'
 import type { Recording, RecordingMetadata, TimelineEvent } from '@shared/ipc.types'
 import type { ProcessingRequiredEvent } from '../recorder/RecorderStateMachine'
@@ -86,7 +86,11 @@ export class StorageManager {
     const dirName = buildDirName(event)
     // dirName may be 'sessionDir/roundDir' for solo-shuffle or a flat name for other brackets.
     const dirPath = join(this.storagePath, ...dirName.split('/'))
-    const videoPath = join(dirPath, 'recording.mp4')
+    // WindowCaptureRecorder names the raw file with the actual negotiated container
+    // extension (mp4 preferred, webm fallback) — mirror that for the trimmed output.
+    // FFmpeg's `-c copy` trim (below) is container-agnostic either way.
+    const videoExt = extname(event.rawPath).replace(/^\./, '') || 'mp4'
+    const videoPath = join(dirPath, `recording.${videoExt}`)
     const thumbnailPath = join(dirPath, 'thumbnail.jpg')
 
     await fs.mkdir(dirPath, { recursive: true })
@@ -106,7 +110,7 @@ export class StorageManager {
     )
     await generateThumbnail(this.runner, ffmpegPath, videoPath, thumbnailPath)
 
-    const metadata = buildMetadata(event, timeline)
+    const metadata = buildMetadata(event, timeline, videoExt)
     await writeMetadata(dirPath, metadata)
 
     // For multi-round sessions (solo shuffle), all rounds share the same raw file.
@@ -155,7 +159,7 @@ export class StorageManager {
         recordings.push({
           id: entry.name,
           path: dirPath,
-          videoPath: join(dirPath, 'recording.mp4'),
+          videoPath: join(dirPath, `recording.${metadata.videoExt ?? 'mp4'}`),
           thumbnailPath: join(dirPath, 'thumbnail.jpg'),
           metadata
         })
@@ -172,7 +176,7 @@ export class StorageManager {
         recordings.push({
           id: `${entry.name}/${sub.name}`,
           path: subDirPath,
-          videoPath: join(subDirPath, 'recording.mp4'),
+          videoPath: join(subDirPath, `recording.${subMetadata.videoExt ?? 'mp4'}`),
           thumbnailPath: join(subDirPath, 'thumbnail.jpg'),
           metadata: subMetadata
         })
@@ -206,7 +210,7 @@ export class StorageManager {
     }
   }
 
-  // Returns paths of directories that contain recording.mp4 but no metadata.json.
+  // Returns paths of directories that contain a recording video but no metadata.json.
   // These are incomplete recordings left by a crash during post-processing.
   async findOrphanedRecordings(): Promise<string[]> {
     const entries = await safeReaddir(this.storagePath)
@@ -217,7 +221,7 @@ export class StorageManager {
 
       const dirPath = join(this.storagePath, entry.name)
       const [hasVideo, hasMetadata] = await Promise.all([
-        fileExists(join(dirPath, 'recording.mp4')),
+        hasAnyRecordingVideo(dirPath),
         fileExists(join(dirPath, 'metadata.json'))
       ])
 
@@ -233,7 +237,7 @@ export class StorageManager {
           if (!sub.isDirectory()) continue
           const subDirPath = join(dirPath, sub.name)
           const [hasSubVideo, hasSubMetadata] = await Promise.all([
-            fileExists(join(subDirPath, 'recording.mp4')),
+            hasAnyRecordingVideo(subDirPath),
             fileExists(join(subDirPath, 'metadata.json'))
           ])
           if (hasSubVideo && !hasSubMetadata) orphaned.push(subDirPath)
@@ -289,8 +293,11 @@ function generateThumbnail(
 // ---------------------------------------------------------------------------
 
 // Builds RecordingMetadata from a processing event.
-// playerName/playerClass/playerSpec/teamComp/enemyComp are not yet available
-// from the combat log in Stage 5 — they will be populated in a later stage.
+// playerName/playerClass/playerSpec are not yet available from the combat log — they
+// will be populated in a later stage. teamComp/enemyComp come from
+// RecorderStateMachine.buildTeamRosters() (COMBATANT_INFO-derived, reliable); empty
+// arrays mean it couldn't be resolved, in which case the renderer falls back to its
+// own event-based heuristic (see VideoPlayer.vue derivedTeams).
 // rating is not yet tracked here; it will be added when ARENA_MATCH_STATS
 // parsing is extended to feed data into processRecording.
 export function buildDirName(event: ProcessingRequiredEvent): string {
@@ -311,7 +318,8 @@ export function buildDirName(event: ProcessingRequiredEvent): string {
 
 export function buildMetadata(
   event: ProcessingRequiredEvent,
-  timeline: TimelineEvent[]
+  timeline: TimelineEvent[],
+  videoExt = 'mp4'
 ): RecordingMetadata {
   const metadata: RecordingMetadata = {
     date: event.matchStartedAt.toISOString(),
@@ -319,11 +327,12 @@ export function buildMetadata(
     bracket: event.bracket,
     result: event.result,
     duration: event.durationSecs,
+    videoExt,
     playerName: '',
     playerClass: '',
     playerSpec: '',
-    teamComp: [],
-    enemyComp: [],
+    teamComp: event.teamComp,
+    enemyComp: event.enemyComp,
     knownSpecs: event.knownSpecs,
     healerNames: event.healerNames,
     rating:
@@ -332,6 +341,11 @@ export function buildMetadata(
         : null,
     events: timeline,
     playerRatings: Object.keys(event.playerRatings).length > 0 ? event.playerRatings : undefined,
+    playerAbsorb: Object.keys(event.playerAbsorb).length > 0 ? event.playerAbsorb : undefined,
+    playerDamageDone: Object.keys(event.playerDamageDone).length > 0 ? event.playerDamageDone : undefined,
+    playerDamageTaken: Object.keys(event.playerDamageTaken).length > 0 ? event.playerDamageTaken : undefined,
+    playerHealingDone: Object.keys(event.playerHealingDone).length > 0 ? event.playerHealingDone : undefined,
+    mistakes: event.detectedMistakes.length > 0 ? event.detectedMistakes : undefined,
     teamDmgBySecond: event.teamDmgBySecond.length > 0 ? event.teamDmgBySecond : undefined,
     enemyDmgBySecond: event.enemyDmgBySecond.length > 0 ? event.enemyDmgBySecond : undefined,
     teamHealBySecond: event.teamHealBySecond.length > 0 ? event.teamHealBySecond : undefined,
@@ -366,6 +380,16 @@ async function fileExists(filePath: string): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+// Recordings are named 'recording.mp4' or 'recording.webm' depending on which
+// container WindowCaptureRecorder negotiated for that match — probe both.
+async function hasAnyRecordingVideo(dirPath: string): Promise<boolean> {
+  const [mp4, webm] = await Promise.all([
+    fileExists(join(dirPath, 'recording.mp4')),
+    fileExists(join(dirPath, 'recording.webm'))
+  ])
+  return mp4 || webm
 }
 
 function formatDateTime(date: Date): string {
