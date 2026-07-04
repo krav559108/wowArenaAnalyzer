@@ -18,7 +18,7 @@ function fmtSecs(seconds: number): string {
 function fmtK(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
   if (n >= 1_000) return (n / 1_000).toFixed(0) + 'K'
-  return String(n)
+  return String(Math.round(n))
 }
 
 // The match's very first death (either side) — mirrors wowarenalogs' "First Blood"
@@ -100,6 +100,15 @@ function segmentTitle(seg: Segment): string {
   return `${seg.spellName}${critMark}${caster} — ${seg.amount.toLocaleString()}`
 }
 
+// Aggregate title for an entire 1s-bucket side (all damage, or all healing) — put on the
+// OUTER bar container rather than relying only on individual segments, since a bucket
+// with several hits splits into slivers a few px wide that are unreliable to hover
+// precisely. The outer container is always a sane hoverable size regardless of how many
+// segments it's divided into.
+function bucketSideTitle(segs: Segment[]): string {
+  return segs.map(segmentTitle).join('\n')
+}
+
 function segmentColor(seg: Segment): string {
   return seg.casterName ? props.playerColor(seg.casterName) : '#71717a'
 }
@@ -154,6 +163,15 @@ function defensivesUsed(ev: TimelineEvent): { spellName: string; relSecs: number
         v-if="buckets.length > 0"
         class="ml-12 mr-2 mb-1 space-y-0.5"
       >
+        <div class="flex items-center gap-1 h-3.5 text-[9px] font-semibold uppercase tracking-wider text-zinc-500">
+          <span class="w-6 flex-shrink-0" />
+          <div class="flex-1 flex items-center h-3">
+            <span class="flex-1 text-right pr-1">Damage Received</span>
+            <span class="w-px h-full bg-zinc-700 flex-shrink-0" />
+            <span class="flex-1 text-left pl-1">Healing Received</span>
+          </div>
+          <span class="flex-shrink-0 w-8" />
+        </div>
         <div
           v-for="b in buckets"
           :key="b.secBefore"
@@ -165,6 +183,7 @@ function defensivesUsed(ev: TimelineEvent): { spellName: string; relSecs: number
               <div
                 class="h-full flex overflow-hidden rounded-l-sm"
                 :style="{ width: `${bucketBarPct(b.totalDmg, buckets)}%` }"
+                :title="bucketSideTitle(b.damage)"
               >
                 <div
                   v-for="(seg, si) in b.damage"
@@ -179,6 +198,7 @@ function defensivesUsed(ev: TimelineEvent): { spellName: string; relSecs: number
               <div
                 class="h-full flex overflow-hidden rounded-r-sm"
                 :style="{ width: `${bucketBarPct(b.totalHeal, buckets)}%` }"
+                :title="bucketSideTitle(b.healing)"
               >
                 <div
                   v-for="(seg, si) in b.healing"

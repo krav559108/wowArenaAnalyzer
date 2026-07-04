@@ -11,9 +11,17 @@ import chokidar, { type FSWatcher } from 'chokidar'
 import type Store from 'electron-store'
 import { resolveFfmpegPath, checkScreenPermission as checkScreenPermissionSync } from '../system/ffmpeg'
 import { listCaptureSources } from '../recorder/sourceResolver'
-import { readAddonCharacterInfo } from '../addon/SavedVarsReader'
+import { readAddonCharacterInfo, isAddonInfoStale, isAddonVersionOutdated } from '../addon/SavedVarsReader'
+import { isInstalledAddonOutdated } from '../addon/addonVersionCheck'
 import { ADDON_RELATIVE_PATH, COMBAT_LOG_RELATIVE_PATH } from '@shared/constants'
 import type { AppConfig, CaptureSource } from '@shared/ipc.types'
+import type { RecorderStateMachine } from '../recorder/RecorderStateMachine'
+
+// Where the addon bundled with this build lives — packaged builds ship it under
+// resourcesPath; in dev it's just the repo's addon/ folder (electron-builder hasn't run).
+export function resolveBundledAddonDir(): string {
+  return app.isPackaged ? join(process.resourcesPath, 'addon') : join(app.getAppPath(), 'addon')
+}
 
 export function registerSystemIpc(configStore: Store<AppConfig>): void {
   // Return the current process platform so renderer can adapt onboarding flow.
@@ -148,7 +156,7 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
     'system:installAddon',
     async (_event, { wowPath }: { wowPath: string }): Promise<{ success: boolean; error?: string }> => {
       try {
-        const src = join(process.resourcesPath, 'addon', 'ArenaRecorderCompanion')
+        const src = join(resolveBundledAddonDir(), 'ArenaRecorderCompanion')
         const dest = join(wowPath, '_retail_', 'Interface', 'AddOns', 'ArenaRecorderCompanion')
         await mkdir(dirname(dest), { recursive: true })
         await cp(src, dest, { recursive: true })
@@ -161,10 +169,7 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
 
   // Open the bundled addon source folder in Finder/Explorer for manual copying.
   ipcMain.handle('system:openAddonSource', (): void => {
-    const src = app.isPackaged
-      ? join(process.resourcesPath, 'addon')
-      : join(app.getAppPath(), 'addon')
-    void shell.openPath(src)
+    void shell.openPath(resolveBundledAddonDir())
   })
 
   // Open the WoW AddOns directory in Finder/Explorer for manual copying.
@@ -178,8 +183,15 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
   ipcMain.handle('system:getAddonStatus', () => {
     const wowPath = configStore.get('wowPath')
     const info = readAddonCharacterInfo(wowPath)
-    if (info === null) return { connected: false }
-    return { connected: true, name: info.name, spec: info.spec, className: info.class }
+    // Two independent signals, OR'd together: the SavedVariables `version` field (only
+    // known once the addon has actually run and written it) and a direct .toc-vs-.toc
+    // comparison against the file sitting in the AddOns folder right now (works even if
+    // WoW hasn't been launched this session — see addonVersionCheck.ts).
+    const needsUpdate =
+      (info !== null && isAddonVersionOutdated(info)) || isInstalledAddonOutdated(wowPath, resolveBundledAddonDir())
+    if (info === null) return { connected: false, needsUpdate }
+    if (isAddonInfoStale(info)) return { connected: false, needsUpdate }
+    return { connected: true, name: info.name, spec: info.spec, className: info.class, needsUpdate }
   })
 
   // Open a URL in the user's default browser.
@@ -199,12 +211,23 @@ export { COMBAT_LOG_RELATIVE_PATH }
 
 // ---------------------------------------------------------------------------
 // Addon SavedVars file watcher — pushes addon:statusChanged to the window
-// whenever WoW flushes SavedVariables to disk (on character switch/reload/exit).
+// whenever WoW flushes SavedVariables to disk (on character switch/reload/exit,
+// which is also when the addon prints "loaded" to chat on PLAYER_LOGIN).
+//
+// WoW only WRITES this file on /reload, logout, or a clean exit — it is not polled.
+// Staleness (e.g. "quit the game 3 days ago and never reloaded since") is instead
+// detected from the `updated` timestamp the addon itself writes into SavedVariables on
+// every login/zone-change/spec-change (see isAddonInfoStale) — no OS-level window
+// polling needed.
 // ---------------------------------------------------------------------------
 
 let addonWatcher: FSWatcher | null = null
 
-export function wireAddonWindow(configStore: Store<AppConfig>, win: BrowserWindow): void {
+export function wireAddonWindow(
+  configStore: Store<AppConfig>,
+  win: BrowserWindow,
+  stateMachine?: RecorderStateMachine
+): void {
   addonWatcher?.close().catch(() => {})
 
   const wowPath = configStore.get('wowPath')
@@ -219,11 +242,27 @@ export function wireAddonWindow(configStore: Store<AppConfig>, win: BrowserWindo
   ).replace(/\\/g, '/')
 
   function push(): void {
-    if (win.isDestroyed()) return
     const info = readAddonCharacterInfo(wowPath)
-    const payload = info === null
-      ? { connected: false }
-      : { connected: true, name: info.name, spec: info.spec, className: info.class }
+    // Keep the recorder's notion of "who am I" current even if the addon's
+    // SavedVariables only appears/updates after the app (and recording pipeline)
+    // already started — otherwise team resolution stays broken for the rest of the
+    // session. See RecorderStateMachine.updateLocalPlayer.
+    stateMachine?.updateLocalPlayer(info?.fullName ?? null, info?.guid ?? null)
+
+    if (win.isDestroyed()) return
+    // OR the SavedVariables-reported version with a direct .toc-vs-.toc file comparison
+    // — the latter also catches "addon needs updating" even when WoW hasn't been
+    // launched yet this session, so this check runs as soon as the window is created,
+    // not just after the player logs in.
+    const needsUpdate =
+      (info !== null && isAddonVersionOutdated(info)) || isInstalledAddonOutdated(wowPath, resolveBundledAddonDir())
+    if (info === null) {
+      win.webContents.send('addon:statusChanged', { connected: false, needsUpdate })
+      return
+    }
+    const payload = isAddonInfoStale(info)
+      ? { connected: false, needsUpdate }
+      : { connected: true, name: info.name, spec: info.spec, className: info.class, needsUpdate }
     win.webContents.send('addon:statusChanged', payload)
   }
 

@@ -2,11 +2,23 @@ import { app, BrowserWindow, shell, Tray, Menu, nativeImage } from 'electron'
 import { join } from 'path'
 import Store from 'electron-store'
 
+// On macOS, Electron's getDisplayMedia({ audio: 'loopback' }) has historically returned
+// a real audio TRACK whose buffer is silence — the track "exists" (so naive audio-track
+// presence checks pass) but no actual system audio ever comes through. These two
+// Chromium flags turn on the real ScreenCaptureKit-backed loopback path; must be set
+// before app 'ready' fires, which is why this sits above every other import's side
+// effects. macOS-only: the flags are meaningless (and Chromium ignores unknown
+// features) on Windows, where WASAPI loopback via 'loopback' already works without them.
+if (process.platform === 'darwin') {
+  app.commandLine.appendSwitch('enable-features', 'MacLoopbackAudioForScreenShare,MacSckSystemAudioLoopbackOverride')
+}
+
 import { registerSystemIpc, wireAddonWindow } from './ipc/system.ipc'
 import { registerRecorderIpc, wireRecorderWindow } from './ipc/recorder.ipc'
 import { registerStorageIpc, wireStorageWindow } from './ipc/storage.ipc'
 import { registerConfigIpc } from './ipc/config.ipc'
 import { registerLogAnalysisIpc } from './ipc/logAnalysis.ipc'
+import { registerTestModeIpc } from './ipc/testMode.ipc'
 
 import { CombatLogWatcher } from './combatlog/CombatLogWatcher'
 import { WindowCaptureRecorder } from './recorder/WindowCaptureRecorder'
@@ -190,7 +202,7 @@ function createWindow(
   // Wire per-window push events (ipcMain.handle is registered once at startup)
   wireRecorderWindow(stateMachine, mainWindow)
   wireStorageWindow(storageManager, mainWindow)
-  wireAddonWindow(configStore, mainWindow)
+  wireAddonWindow(configStore, mainWindow, stateMachine)
 
   if (process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
@@ -228,6 +240,7 @@ app.whenReady().then(() => {
   // Register ipcMain.handle commands once — re-registration throws in Electron.
   registerRecorderIpc(stateMachine)
   registerStorageIpc(storageManager)
+  registerTestModeIpc(recorder, stateMachine, configStore, configStore.get('storagePath'))
 
   const mainWindow = createWindow(stateMachine, storageManager)
 

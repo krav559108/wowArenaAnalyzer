@@ -1142,6 +1142,22 @@ export const DEFAULT_CAPTURE_SOURCE_HINT = 'auto'
 export const DEFAULT_VIDEO_RESOLUTION = 'native'
 export const DEFAULT_MINIMIZE_TO_TRAY = true
 export const ADDON_RELATIVE_PATH = '_retail_/Interface/AddOns/ArenaRecorderCompanion'
+
+// Bump whenever the addon's SavedVariables contract changes in a way the app depends
+// on (e.g. new fields it reads). ArenaRecorderCompanion.lua writes its own version into
+// ArenaRecorderDB.character.version — if that's missing or older than this, the
+// installed addon predates a feature the app needs and the user should be prompted to
+// update it (see system:getAddonStatus's needsUpdate flag).
+export const MIN_ADDON_VERSION = '1.2.0'
+
+// How stale ArenaRecorderDB.character.updated (written on PLAYER_LOGIN /
+// PLAYER_ENTERING_WORLD / spec change) can be before "connected" is no longer trusted.
+// WoW only flushes SavedVariables to disk on logout/reload/exit, but the in-memory
+// `updated` timestamp itself only changes on those frequent in-game events, so this
+// mainly catches "game was quit N days ago and never reloaded since" rather than normal
+// play gaps.
+export const ADDON_STALE_MS = 30 * 60 * 1000 // 30 minutes
+
 export const DEFAULT_STATS_SITE: import('./ipc.types').StatsSite = 'checkpvp'
 export const DEFAULT_WOW_REGION: import('./ipc.types').WowRegion = 'eu'
 

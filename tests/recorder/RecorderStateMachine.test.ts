@@ -270,6 +270,45 @@ describe('RecorderStateMachine — idle → waiting → recording → processing
     expect(processingEvents[0]?.result).toBe('LOSS')
   })
 
+  // Regression test for a real bug: if the addon's SavedVariables file doesn't exist yet
+  // at app startup (e.g. WoW hasn't been /reload'd since install), localPlayerName/Guid
+  // stay null for the constructor's entire lifetime unless something updates them later —
+  // silently breaking team resolution for every match until the app is fully restarted.
+  // updateLocalPlayer() (called by the addon file watcher once SavedVariables actually
+  // appears) must let a session recover mid-run instead of needing a restart.
+  it('recovers team resolution mid-session via updateLocalPlayer after starting with no addon data', async () => {
+    const w = new FakeWatcher()
+    const r = new FakeRecorder()
+    // Constructed with no addon info at all — simulates SavedVariables missing at startup.
+    const m = buildMachine(w, r, {})
+
+    w.fireParser('arenaZoneEntered', zoneEntered)
+    await flushPromises()
+    w.fireParser('arenaMatchStart', { ...matchStart2v2, localTeam: 1 })
+    w.fireParser('combatantInfo', {
+      playerGuid: 'Player-1329-0A8E2A98',
+      playerName: '',
+      team: 0,
+      personalRating: 1932,
+      specId: null,
+      timestamp: matchStart2v2.timestamp
+    })
+
+    // Addon's SavedVariables becomes available mid-session (e.g. WoW /reload just ran).
+    m.updateLocalPlayer('Critical-Ravencrest', 'Player-1329-0A8E2A98')
+
+    const processingEvents: ProcessingRequiredEvent[] = []
+    m.on('processingRequired', (e) => processingEvents.push(e))
+
+    w.fireParser('arenaMatchEnd', { ...matchEnd, winningTeam: 1 })
+    await flushPromises()
+
+    // winningTeam(1) !== real local team(0) → LOSS, only resolvable once localPlayerGuid
+    // was set via updateLocalPlayer (without it, this would fall back to the unreliable
+    // field-3 value and report the wrong result).
+    expect(processingEvents[0]?.result).toBe('LOSS')
+  })
+
   // Regression test for a real bug: team composition ("Your Team" / "Enemy Team" in
   // VideoPlayer.vue) was derived from a per-event target/caster reaction-flag
   // heuristic when metadata.teamComp/enemyComp were empty — which they always were,

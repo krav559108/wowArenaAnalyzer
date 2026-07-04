@@ -51,17 +51,6 @@ describe('detectMistakes', () => {
     expect(mistakes[0]?.timestamp).toBe(3)
   })
 
-  it('surfaces deaths with unused defensives', () => {
-    const timeline: TimelineEvent[] = [
-      { timestamp: 90, type: 'death-player', unit: 'Mage-EU', unusedDefensives: ['Ice Block'] },
-      { timestamp: 95, type: 'death-player', unit: 'Rogue-EU', unusedDefensives: [] }
-    ]
-    const mistakes = detectMistakes(timeline, windows({}))
-    expect(mistakes).toHaveLength(1)
-    expect(mistakes[0]?.id).toBe('died_without_defensive')
-    expect(mistakes[0]?.targetName).toBe('Mage-EU')
-  })
-
   it('detects damage/CC cast into a full-immunity window', () => {
     const timeline: TimelineEvent[] = [
       { timestamp: 20, type: 'offensive', spellId: 205021, spellName: 'Ray of Frost', target: 'enemy', targetName: 'Paladin-EU' },

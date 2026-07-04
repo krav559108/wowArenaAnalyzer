@@ -11,6 +11,8 @@
 
 ArenaRecorderDB = ArenaRecorderDB or {}
 
+local ADDON_VERSION = "1.2.0"
+
 -- ---------------------------------------------------------------------------
 -- Character info
 -- ---------------------------------------------------------------------------
@@ -37,7 +39,11 @@ local function SaveCharacterInfo()
         fullName  = name .. "-" .. realm,
         class     = className or "",
         spec      = specName,
+        -- Refreshed on every login / zone change / spec change — the desktop app uses
+        -- how recent this is to tell "addon connected" from "haven't played in days",
+        -- since WoW only flushes SavedVariables on logout/reload, not continuously.
         updated   = date("%Y-%m-%dT%H:%M:%S"),
+        version   = ADDON_VERSION,
     }
 end
 
@@ -68,7 +74,7 @@ local PREFIX = "|cff00aaffArena Recorder Companion|r"
 
 local function PrintAbout()
     print(" ")
-    print(PREFIX .. " v1.1.0")
+    print(PREFIX .. " v" .. ADDON_VERSION)
     print("|cffaaaaaa----------------------------------------|r")
     print("This addon is a companion for the |cff00aaff Arena Recorder|r desktop app.")
     print("It does |cffff4444two|r small things:")

@@ -210,7 +210,9 @@ export interface IpcCommands {
   // Addon connection status
   'system:getAddonStatus': {
     params: void
-    result: { connected: boolean; name?: string; spec?: string; className?: string }
+    // needsUpdate: the installed addon predates MIN_ADDON_VERSION (or never reported a
+    // version) — the UI should prompt the user to reinstall it via system:installAddon.
+    result: { connected: boolean; name?: string; spec?: string; className?: string; needsUpdate?: boolean }
   }
 
   // System / onboarding checks
@@ -236,6 +238,13 @@ export interface IpcCommands {
   'system:openUrl': { params: { url: string }; result: void }
   'system:relaunch': { params: void; result: void }
   'system:getPlatform': { params: void; result: { platform: string } }
+
+  // Test mode — records a short clip of the capture source so the user can verify
+  // the app will work before an actual match, without needing a full arena game.
+  // Rejects if a real match recording is already in progress (stateMachine not idle).
+  'testMode:start': { params: void; result: { success: boolean; error?: string; videoPath?: string } }
+  // Deletes the last test recording's file + containing directory.
+  'testMode:cleanup': { params: void; result: void }
 }
 
 // ---------------------------------------------------------------------------
@@ -251,7 +260,9 @@ export interface IpcEvents {
   // Fired on startup when orphaned recording directories are found
   'storage:orphanedRecordings': { paths: string[] }
   // Fired when the SavedVariables file changes — addon character switched
-  'addon:statusChanged': { connected: boolean; name?: string; spec?: string; className?: string }
+  'addon:statusChanged': { connected: boolean; name?: string; spec?: string; className?: string; needsUpdate?: boolean }
+  // Fired once per second while a test-mode recording is running, counting down to 0
+  'testMode:countdown': { secondsRemaining: number }
 }
 
 // External character-stats site used for the "view my stats" links in the Team panel

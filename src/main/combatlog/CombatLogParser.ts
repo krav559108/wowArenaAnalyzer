@@ -105,6 +105,15 @@ function parseHealAmount(fields: string[]): number {
   return parseInt(fields[fields.length - 5] ?? '', 10)
 }
 
+// WoW's combat log writes the literal string "nil" for fields it can't resolve a real
+// value for (e.g. a caster whose original identity is no longer trackable, commonly
+// seen on some DoT ticks) — normalize it to '' here so every downstream truthiness
+// check (`if (e.casterName)`) treats it the same as "no name", instead of a phantom
+// "nil" player showing up in meters/death recaps.
+function sanitizeName(raw: string | undefined): string {
+  return raw === undefined || raw === 'nil' ? '' : raw
+}
+
 // Critical-hit flag: "1" when true, "nil" otherwise — verified against real log lines.
 // SPELL_DAMAGE/SPELL_PERIODIC_DAMAGE end in an extra AOE/ST marker that SWING_DAMAGE
 // doesn't have, shifting the offset by one.
@@ -831,12 +840,12 @@ export class CombatLogParser extends EventEmitter {
 
   private handleSpellHeal(fields: string[], timestamp: Date): void {
     const casterGuid = fields[SPELL_FIELD_CASTER_GUID]
-    const casterName = fields[SPELL_FIELD_CASTER_NAME]
+    const casterName = sanitizeName(fields[SPELL_FIELD_CASTER_NAME])
     const targetGuid = fields[SPELL_FIELD_TARGET_GUID]
-    const targetName = fields[SPELL_FIELD_TARGET_NAME]
+    const targetName = sanitizeName(fields[SPELL_FIELD_TARGET_NAME])
     const spellId = parseInt(fields[SPELL_FIELD_SPELL_ID] ?? '', 10)
     const spellName = fields[SPELL_FIELD_SPELL_NAME]
-    if (casterGuid === undefined || casterName === undefined) return
+    if (casterGuid === undefined || fields[SPELL_FIELD_CASTER_NAME] === undefined) return
 
     // Emit heal amount event for ALL heals (including self) — used for team heal charts
     // and per-target healing-received tracking (death recap). Redirect pet/totem heals
@@ -865,8 +874,8 @@ export class CombatLogParser extends EventEmitter {
 
   private handleSpellAbsorbed(fields: string[], timestamp: Date): void {
     const casterGuid = fields[ABSORBED_FIELD_CASTER_GUID]
-    const casterName = fields[ABSORBED_FIELD_CASTER_NAME]
-    if (casterGuid === undefined || casterName === undefined) return
+    const casterName = sanitizeName(fields[ABSORBED_FIELD_CASTER_NAME])
+    if (casterGuid === undefined || !casterName) return
 
     const amount = parseInt(fields[ABSORBED_FIELD_AMOUNT] ?? '0', 10)
     if (isNaN(amount) || amount <= 0) return
@@ -876,9 +885,9 @@ export class CombatLogParser extends EventEmitter {
 
   private handleSpellDamage(fields: string[], timestamp: Date): void {
     const casterGuid = fields[SPELL_FIELD_CASTER_GUID]
-    const casterName = fields[SPELL_FIELD_CASTER_NAME]
+    const casterName = sanitizeName(fields[SPELL_FIELD_CASTER_NAME])
     const targetGuid = fields[SPELL_FIELD_TARGET_GUID]
-    const targetName = fields[SPELL_FIELD_TARGET_NAME] ?? ''
+    const targetName = sanitizeName(fields[SPELL_FIELD_TARGET_NAME])
     if (casterGuid === undefined || targetGuid === undefined) return
 
     // Only track damage between players (Pet/NPC hits are excluded by GUID prefix)
@@ -893,7 +902,7 @@ export class CombatLogParser extends EventEmitter {
     const casterFlags = parseHexFlags(fields[SPELL_FIELD_CASTER_FLAGS] ?? '0')
     // Redirect pet/summon damage (Xuen, Storm Earth and Fire clones, Water Elemental,
     // etc.) to the owning player — see resolveEffectiveCaster.
-    const effective = this.resolveEffectiveCaster(casterGuid, casterName ?? '')
+    const effective = this.resolveEffectiveCaster(casterGuid, casterName)
 
     this.emit('spellDamage', {
       casterGuid: effective.guid,
@@ -911,9 +920,9 @@ export class CombatLogParser extends EventEmitter {
 
   private handleSwingDamage(fields: string[], timestamp: Date): void {
     const casterGuid = fields[SPELL_FIELD_CASTER_GUID]
-    const casterName = fields[SPELL_FIELD_CASTER_NAME]
+    const casterName = sanitizeName(fields[SPELL_FIELD_CASTER_NAME])
     const targetGuid = fields[SPELL_FIELD_TARGET_GUID]
-    const targetName = fields[SPELL_FIELD_TARGET_NAME] ?? ''
+    const targetName = sanitizeName(fields[SPELL_FIELD_TARGET_NAME])
     if (casterGuid === undefined || targetGuid === undefined) return
 
     if (!targetGuid.startsWith('Player-')) return
@@ -922,7 +931,7 @@ export class CombatLogParser extends EventEmitter {
     if (isNaN(amount) || amount <= 0) return
 
     const casterFlags = parseHexFlags(fields[SPELL_FIELD_CASTER_FLAGS] ?? '0')
-    const effective = this.resolveEffectiveCaster(casterGuid, casterName ?? '')
+    const effective = this.resolveEffectiveCaster(casterGuid, casterName)
 
     this.emit('spellDamage', {
       casterGuid: effective.guid,

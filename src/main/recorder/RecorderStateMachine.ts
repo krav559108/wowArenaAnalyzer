@@ -269,11 +269,16 @@ export class RecorderStateMachine extends EventEmitter {
   // Inferred class per player name — persists for the duration of the arena session.
   private readonly playerClassInferred = new Map<string, WowClass>()
 
-  // Local player's fullName from addon SavedVars (Name-Realm format).
-  private readonly localPlayerName: string | null
+  // Local player's fullName from addon SavedVars (Name-Realm format). Mutable — see
+  // updateLocalPlayer(): the addon's SavedVariables may not exist yet at app startup
+  // (e.g. WoW hasn't been /reload'd since install), in which case this stays null for
+  // the whole session unless updated once the addon actually writes its data, silently
+  // breaking team resolution (falls back to the unreliable per-event heuristic) for
+  // every match recorded before that point.
+  private localPlayerName: string | null
   // Local player's GUID from addon SavedVars — preferred over localPlayerName (see
   // StateMachineOptions.localPlayerGuid doc comment for why name matching is fragile).
-  private readonly localPlayerGuid: string | null
+  private localPlayerGuid: string | null
 
   // Diagnostic cross-check (2v2/3v3 only): the previous rated match's local-player
   // rating snapshot + computed result, held until the next COMBATANT_INFO for that
@@ -311,6 +316,15 @@ export class RecorderStateMachine extends EventEmitter {
 
   updateRecorderOptions(opts: RecorderOptions): void {
     this.options = { ...this.options, recorder: opts }
+  }
+
+  // Called whenever the addon's SavedVariables file changes (WoW /reload, character
+  // switch, or first becomes available after app startup) — keeps team resolution
+  // working for the rest of the session instead of being frozen at whatever the addon
+  // reported (or didn't) when the app first launched.
+  updateLocalPlayer(name: string | null, guid: string | null): void {
+    this.localPlayerName = name
+    this.localPlayerGuid = guid
   }
 
   // ---------------------------------------------------------------------------

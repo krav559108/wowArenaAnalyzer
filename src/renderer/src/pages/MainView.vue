@@ -9,6 +9,7 @@ import RecordingList from '@/components/RecordingList.vue'
 import VideoPlayer from '@/components/VideoPlayer.vue'
 import SettingsView from '@/pages/SettingsView.vue'
 import PvpHubView from '@/pages/PvpHubView.vue'
+import AddonUpdateModal from '@/components/AddonUpdateModal.vue'
 const appStore = useAppStore()
 const recordingsStore = useRecordingsStore()
 const statsLinkStore = useStatsLinkStore()
@@ -73,11 +74,13 @@ const filteredRecordings = computed(() =>
 
 const addonConnected = ref(false)
 const addonCharacter = ref('')
+const showAddonUpdateModal = ref(false)
+let addonUpdatePromptShown = false
 
 let addonPollTimer: ReturnType<typeof setInterval> | null = null
 let unsubAddon: (() => void) | null = null
 
-function applyAddonStatus(result: { connected: boolean; name?: string; spec?: string }): void {
+function applyAddonStatus(result: { connected: boolean; name?: string; spec?: string; needsUpdate?: boolean }): void {
   addonConnected.value = result.connected
   addonCharacter.value =
     result.connected && result.name
@@ -85,6 +88,11 @@ function applyAddonStatus(result: { connected: boolean; name?: string; spec?: st
         ? `${result.name} · ${result.spec}`
         : result.name
       : ''
+  // Prompt once per app session — the user can dismiss it and keep using the app.
+  if (result.needsUpdate && !addonUpdatePromptShown) {
+    addonUpdatePromptShown = true
+    showAddonUpdateModal.value = true
+  }
 }
 
 async function refreshAddonStatus(): Promise<void> {
@@ -440,7 +448,7 @@ const statusTextClass = computed(() => {
       >
         <div
           v-if="settingsOpen"
-          class="absolute top-0 right-0 h-full w-80 border-l border-zinc-800 shadow-2xl z-20"
+          class="absolute top-0 right-0 h-full w-[75%] border-l border-zinc-800 shadow-2xl z-20"
         >
           <SettingsView @close="settingsOpen = false" />
         </div>
@@ -462,5 +470,10 @@ const statusTextClass = computed(() => {
         />
       </Transition>
     </div>
+
+    <AddonUpdateModal
+      v-if="showAddonUpdateModal"
+      @close="showAddonUpdateModal = false"
+    />
   </div>
 </template>

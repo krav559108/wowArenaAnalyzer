@@ -9,7 +9,7 @@ import TimelineCanvas from './TimelineCanvas.vue'
 import MeterWidget from './MeterWidget.vue'
 import CooldownTimeline from './CooldownTimeline.vue'
 import DeathLog from './DeathLog.vue'
-import { TIMELINE_COLORS, SPELL_CLASS_MAP, SPELL_SPEC_MAP, HEALER_SPEC_BY_CLASS } from '@shared/constants'
+import { TIMELINE_COLORS, SPELL_CLASS_MAP, SPELL_SPEC_MAP, HEALER_SPEC_BY_CLASS, WOW_SPEC_ID_MAP } from '@shared/constants'
 import { toFileUrl } from '@/utils/fileUrl'
 import { buildCharacterStatsUrl } from '@/utils/characterLinks'
 import { computeScoreboard } from '@/composables/useScoreboard'
@@ -219,8 +219,22 @@ const confirmedHealerSet = computed((): Set<string> => {
   return s
 })
 
+// Spec name (e.g. "Frost", "Affliction") → class, reversed from WOW_SPEC_ID_MAP —
+// lets playerColor/playerSpec resolve a class from metadata.knownSpecs (COMBATANT_INFO,
+// covers every player regardless of what they cast) instead of only from tracked spell
+// casts, which previously left DPS/healer-only players with no class color at all in
+// the Meters panel whenever they happened not to cast a tracked cc/defensive/offensive/
+// interrupt/trinket spell during the visible match.
+const SPEC_NAME_TO_CLASS: Record<string, string> = (() => {
+  const map: Record<string, string> = {}
+  for (const entry of Object.values(WOW_SPEC_ID_MAP)) {
+    map[entry.spec] = entry.class
+  }
+  return map
+})()
+
 function playerColor(name: string): string {
-  const cls = derivedClassMap.value.get(name)
+  const cls = derivedClassMap.value.get(name) ?? SPEC_NAME_TO_CLASS[props.recording.metadata.knownSpecs?.[name] ?? '']
   return cls !== undefined ? (CLASS_COLORS[cls] ?? '#d4d4d8') : '#d4d4d8'
 }
 
@@ -334,11 +348,25 @@ const showEvents = ref(false)
 // -------------------------------------------------------------------------
 const showDeathLog = ref(false)
 
-const deathEvents = computed(() =>
-  events.value
-    .filter((ev) => ev.type === 'death-player' || ev.type === 'death-enemy')
+function unitClass(name: string): string | undefined {
+  return derivedClassMap.value.get(name) ?? SPEC_NAME_TO_CLASS[props.recording.metadata.knownSpecs?.[name] ?? '']
+}
+
+const deathEvents = computed(() => {
+  const raw = events.value.filter((ev) => ev.type === 'death-player' || ev.type === 'death-enemy')
+  // Hunters can Feign Death, which fires UNIT_DIED without an actual death — the combat
+  // log can't tell real deaths from feigns, so we only keep the LAST death per Hunter
+  // (the one that actually ends their game), dropping earlier feign-death false positives.
+  const lastHunterDeathAt = new Map<string, number>()
+  for (const ev of raw) {
+    if (ev.unit && unitClass(ev.unit) === 'Hunter') {
+      lastHunterDeathAt.set(ev.unit, Math.max(ev.timestamp, lastHunterDeathAt.get(ev.unit) ?? -Infinity))
+    }
+  }
+  return raw
+    .filter((ev) => !ev.unit || unitClass(ev.unit) !== 'Hunter' || ev.timestamp === lastHunterDeathAt.get(ev.unit))
     .sort((a, b) => a.timestamp - b.timestamp)
-)
+})
 
 // -------------------------------------------------------------------------
 // Graphs
@@ -360,7 +388,7 @@ function buildSvgPath(data: number[], w: number, h: number): string {
 function fmtK(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
   if (n >= 1_000) return (n / 1_000).toFixed(0) + 'K'
-  return String(n)
+  return String(Math.round(n))
 }
 
 

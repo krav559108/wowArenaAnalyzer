@@ -349,7 +349,7 @@ export class WindowCaptureRecorder extends EventEmitter {
 // ---------------------------------------------------------------------------
 
 function createHiddenCaptureWindow(): BrowserWindow {
-  return new BrowserWindow({
+  const win = new BrowserWindow({
     show: false,
     // Never call .show() — "hidden" here means invisible, NOT Electron's `offscreen`
     // rendering mode, which is unrelated to (and incompatible with) real
@@ -359,9 +359,36 @@ function createHiddenCaptureWindow(): BrowserWindow {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
-      webSecurity: true
+      webSecurity: true,
+      // This window is never shown, so Chromium would otherwise apply background
+      // throttling to its timers and rendering — which can starve the MediaRecorder
+      // encoder and the WebAudio graph that keeps the audio pipeline fed.
+      backgroundThrottling: false
     }
   })
+
+  // captureMain.ts's console.warn() diagnostics (mimeType support, audio track presence,
+  // etc.) otherwise only reach a hidden window's invisible, inaccessible DevTools — pipe
+  // them into the main process's own console/terminal so they're actually observable
+  // (and end up in whatever log capture the packaged app has), instead of being lost.
+  //
+  // Electron's .d.ts declares this event as (event, messageDetails: { message }), but at
+  // runtime on this Electron version it's actually invoked positionally as
+  // (event, level, message, line, sourceId) — messageDetails.message came back
+  // `undefined` every time, confirming the mismatch. Read both shapes defensively.
+  win.webContents.on('console-message', (...args: unknown[]) => {
+    const messageDetails = args[1] as { message?: string } | undefined
+    const positionalMessage = args[2]
+    const message =
+      typeof messageDetails === 'object' && messageDetails !== null && typeof messageDetails.message === 'string'
+        ? messageDetails.message
+        : typeof positionalMessage === 'string'
+          ? positionalMessage
+          : String(messageDetails)
+    console.warn(`[capture-renderer] ${message}`)
+  })
+
+  return win
 }
 
 async function loadCaptureRenderer(win: BrowserWindow): Promise<void> {

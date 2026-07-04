@@ -1,0 +1,79 @@
+// Test Mode — lets the user record a short (10s) clip of the capture source on demand,
+// to verify the capture pipeline actually works before relying on it for a real match.
+// Reuses the same WindowCaptureRecorder instance the main pipeline uses (a second
+// instance's setDisplayMediaRequestHandler registration would be a no-op — see
+// WindowCaptureRecorder's `handlerRegistered` static guard — so it MUST be this instance).
+//
+// Commands (ipcMain.handle):
+//   testMode:start    — records for TEST_RECORDING_SECS, resolves once stopped
+//   testMode:cleanup  — deletes the last test recording's file + containing directory
+//
+// Push events (webContents.send):
+//   testMode:countdown — fired once per second while recording, counting down to 0
+
+import { ipcMain, BrowserWindow } from 'electron'
+import { promises as fs } from 'fs'
+import { join } from 'path'
+import type { WindowCaptureRecorder } from '../recorder/WindowCaptureRecorder'
+import type { RecorderStateMachine } from '../recorder/RecorderStateMachine'
+import type Store from 'electron-store'
+import type { AppConfig } from '@shared/ipc.types'
+
+const TEST_RECORDING_SECS = 10
+
+export function registerTestModeIpc(
+  recorder: WindowCaptureRecorder,
+  stateMachine: RecorderStateMachine,
+  configStore: Store<AppConfig>,
+  storagePath: string
+): void {
+  let lastTestPath: string | null = null
+
+  ipcMain.handle('testMode:start', async () => {
+    if (stateMachine.getStatus() !== 'idle' || recorder.isRecording()) {
+      return { success: false, error: 'Cannot start a test recording while a match is being recorded.' }
+    }
+
+    const testDir = join(storagePath, 'test', `test_${Date.now()}`)
+    const outputPath = join(testDir, 'test.mp4')
+
+    try {
+      await recorder.start(outputPath, {
+        bitrateKbps: configStore.get('videoBitrate'),
+        fps: configStore.get('videoFps'),
+        sourceHint: configStore.get('captureSourceHint'),
+        resolution: configStore.get('videoResolution')
+      })
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
+
+    lastTestPath = testDir
+
+    for (let remaining = TEST_RECORDING_SECS; remaining > 0; remaining--) {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('testMode:countdown', { secondsRemaining: remaining })
+      }
+      await sleep(1000)
+    }
+
+    let videoPath: string
+    try {
+      videoPath = await recorder.stop()
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
+
+    return { success: true, videoPath }
+  })
+
+  ipcMain.handle('testMode:cleanup', async () => {
+    if (lastTestPath === null) return
+    await fs.rm(lastTestPath, { recursive: true, force: true })
+    lastTestPath = null
+  })
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}

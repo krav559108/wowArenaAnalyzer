@@ -484,3 +484,28 @@ describe('CombatLogParser — pet/totem damage and healing attributed to the own
     expect(events[0]!.casterName).toBe('Healing Stream Totem')
   })
 })
+
+// ---------------------------------------------------------------------------
+// "nil" caster/target names — WoW's own Lua null literal
+// ---------------------------------------------------------------------------
+// WoW writes the literal (unquoted) string nil for some fields it can't resolve a
+// real value for (commonly seen on certain DoT ticks whose original caster is no
+// longer trackable) — this must not leak through as a phantom "nil" player.
+
+describe('CombatLogParser — "nil" caster/target names are treated as absent', () => {
+  it('does not emit spellDamage with casterName "nil"', () => {
+    const parser = new CombatLogParser()
+    const events: SpellDamageEvent[] = []
+    parser.on('spellDamage', (e) => events.push(e))
+
+    parser.processLine(
+      '4/15/2026 22:35:20.0143  SPELL_DAMAGE,Player-000-00000001,nil,0x548,0x80000000,' +
+        'Player-000-00000002,"Victim-Realm-EU",0x511,0x80000000,331850,"Blade Flurry",0x1,' +
+        'Player-000-00000002,0000000000000000,445976,451840,279,2654,710,2272,0,0,0,235420,250000,0,' +
+        '1277.96,1645.59,0,0.6261,283,5864,7724,-1,1,0,0,0,nil,nil,nil,AOE'
+    )
+
+    expect(events).toHaveLength(1)
+    expect(events[0]!.casterName).toBe('')
+  })
+})

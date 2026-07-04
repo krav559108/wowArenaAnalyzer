@@ -46,7 +46,6 @@ export function detectMistakes(
     ...surfaceDrImmuneCC(timeline),
     ...surfaceBurstWithoutHealerCC(timeline),
     ...surfaceBadInterrupts(timeline),
-    ...surfaceDeathsWithoutDefensive(timeline),
     ...detectIntoImmunity(timeline, auraWindowsByName),
     ...detectBurstIntoDefensive(timeline, auraWindowsByName),
     ...detectTrinketOnLowValueCC(timeline, auraWindowsByName),
@@ -100,19 +99,6 @@ function surfaceBadInterrupts(timeline: TimelineEvent[]): DetectedMistake[] {
       spellId: ev.spellId,
       spellName: ev.spellName,
       targetName: ev.targetName
-    }))
-}
-
-function surfaceDeathsWithoutDefensive(timeline: TimelineEvent[]): DetectedMistake[] {
-  return timeline
-    .filter((ev) => ev.type === 'death-player' && ev.unusedDefensives && ev.unusedDefensives.length > 0)
-    .map((ev) => ({
-      id: 'died_without_defensive',
-      severity: 'HIGH',
-      title: `${ev.unit ?? 'A teammate'} died with defensives available`,
-      tip: `Unused at time of death: ${(ev.unusedDefensives ?? []).join(', ')}.`,
-      timestamp: ev.timestamp,
-      targetName: ev.unit
     }))
 }
 
