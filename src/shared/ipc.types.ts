@@ -34,6 +34,7 @@ export interface DeathHit {
   relSecs: number  // seconds before death (0 = at death moment, negative = before)
   // HP% of the target just before this hit landed (requires Advanced Combat Logging)
   hpPct?: number
+  casterName?: string
 }
 
 // A CC or defensive/trinket cast in the run-up to a death (no damage amount).

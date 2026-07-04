@@ -146,6 +146,7 @@ interface DamageHit {
   spellId?: number
   spellName: string
   amount: number
+  casterName?: string
 }
 
 interface DmgSample {
@@ -1477,7 +1478,7 @@ export class RecorderStateMachine extends EventEmitter {
 
     // Track damage for death recap (sliding window per target)
     const hits = this.session.recentDamageByGuid.get(e.targetGuid) ?? []
-    hits.push({ relSecs, spellId: e.spellId, spellName: e.spellName, amount: e.amount })
+    hits.push({ relSecs, spellId: e.spellId, spellName: e.spellName, amount: e.amount, casterName: e.casterName || undefined })
     // Trim to the death-recap window
     const cutoff = relSecs - DEATH_RECAP_WINDOW_SECS
     const trimmed = cutoff > 0 ? hits.filter((h) => h.relSecs >= cutoff) : hits
@@ -1523,7 +1524,7 @@ export class RecorderStateMachine extends EventEmitter {
     // Track healing received for death recap (sliding window per target)
     if (e.targetGuid) {
       const hits = this.session.recentHealingByGuid.get(e.targetGuid) ?? []
-      hits.push({ relSecs, spellId: e.spellId, spellName: e.spellName ?? '', amount: e.amount })
+      hits.push({ relSecs, spellId: e.spellId, spellName: e.spellName ?? '', amount: e.amount, casterName: e.casterName || undefined })
       const cutoff = relSecs - DEATH_RECAP_WINDOW_SECS
       const trimmed = cutoff > 0 ? hits.filter((h) => h.relSecs >= cutoff) : hits
       this.session.recentHealingByGuid.set(e.targetGuid, trimmed)

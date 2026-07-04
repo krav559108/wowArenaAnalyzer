@@ -1287,10 +1287,12 @@ describe('RecorderStateMachine — death recap: damage/healing/CC/defensives win
 
     expect(deathEv.deathSummary).toHaveLength(1)
     expect(deathEv.deathSummary![0]!.spellName).toBe('Mortal Strike')
+    expect(deathEv.deathSummary![0]!.casterName).toBe('EnemyWarr-Realm')
 
     expect(deathEv.deathHealing).toHaveLength(1)
     expect(deathEv.deathHealing![0]!.spellName).toBe('Flash Heal')
     expect(deathEv.deathHealing![0]!.amount).toBe(15000)
+    expect(deathEv.deathHealing![0]!.casterName).toBe('HolyPriest-Realm')
 
     expect(deathEv.deathCCTaken).toHaveLength(1)
     expect(deathEv.deathCCTaken![0]!.spellName).toBe('Kidney Shot')
