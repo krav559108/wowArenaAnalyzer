@@ -27,16 +27,19 @@ const firstBloodTimestamp = computed(() =>
   props.deaths.length > 0 ? Math.min(...props.deaths.map((d) => d.timestamp)) : null
 )
 
-// One unified, chronological recap row per death — mirrors the classic Details!
-// "Death Recap" addon layout: time, spell (caster), amount. Damage/healing/CC/
-// defensives are merged into a single list instead of separate sub-sections so it
-// reads as one timeline of "what happened in the runup to this death."
+// One chronological recap row per death — mirrors the classic Details! "Death
+// Recap" addon layout exactly: time, spell (caster), amount. This is a pure damage
+// (+ healing received, since that's still "what happened to your HP") recap —
+// CC taken is deliberately excluded here (it's not damage, and cluttered the
+// "what actually killed me" story); CC mistakes are already surfaced separately in
+// the Mistakes panel. Defensives used are still shown since they explain gaps in
+// the damage taken (e.g. why a hit was smaller than expected).
 interface RecapRow {
   relSecs: number
   spellName: string
   casterName?: string
   amount?: number
-  kind: 'damage' | 'heal' | 'cc' | 'defensive'
+  kind: 'damage' | 'heal' | 'defensive'
 }
 
 function recapRows(ev: TimelineEvent): RecapRow[] {
@@ -46,9 +49,6 @@ function recapRows(ev: TimelineEvent): RecapRow[] {
   }
   for (const h of ev.deathHealing ?? []) {
     rows.push({ relSecs: h.relSecs, spellName: h.spellName, casterName: h.casterName, amount: h.amount, kind: 'heal' })
-  }
-  for (const cc of ev.deathCCTaken ?? []) {
-    rows.push({ relSecs: cc.relSecs, spellName: cc.spellName, casterName: cc.casterName, kind: 'cc' })
   }
   for (const def of ev.deathDefensivesUsed ?? []) {
     rows.push({ relSecs: def.relSecs, spellName: def.spellName, kind: 'defensive' })
@@ -179,7 +179,7 @@ function fmtAmount(n: number): string {
           <span class="tabular-nums text-zinc-500 w-9 flex-shrink-0">{{ row.relSecs.toFixed(1) }}s</span>
           <span
             class="truncate"
-            :class="row.kind === 'defensive' ? 'text-blue-300' : row.kind === 'cc' ? 'text-purple-300' : 'text-amber-200'"
+            :class="row.kind === 'defensive' ? 'text-blue-300' : 'text-amber-200'"
           >{{ row.spellName }}</span>
           <span
             v-if="row.casterName"
