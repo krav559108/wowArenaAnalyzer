@@ -17,8 +17,9 @@ export class AmbiguousSourceError extends Error {
 }
 
 export class NoSourceFoundError extends Error {
-  constructor() {
-    super('No World of Warcraft window found to capture.')
+  constructor(availableWindowNames: string[]) {
+    const list = availableWindowNames.length > 0 ? availableWindowNames.join(', ') : '(none)'
+    super(`No World of Warcraft window found to capture. Windows currently visible to the OS: ${list}`)
     this.name = 'NoSourceFoundError'
   }
 }
@@ -75,5 +76,5 @@ export async function resolveCaptureSource(
   if (substring.length === 1) return substring[0]!
   if (substring.length > 1) throw new AmbiguousSourceError(substring)
 
-  throw new NoSourceFoundError()
+  throw new NoSourceFoundError(windowSources.map((s) => s.name))
 }

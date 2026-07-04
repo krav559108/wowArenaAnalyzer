@@ -159,8 +159,14 @@ export class WindowCaptureRecorder extends EventEmitter {
         settled = true
         cleanupListeners()
         this.pendingSource = null
-        void this.teardownHiddenWindow()
-        reject(new Error(`Capture did not start within ${startupTimeout}ms.`))
+        void this.teardownHiddenWindow(win)
+        reject(
+          new Error(
+            `Capture did not start within ${startupTimeout}ms. Source: "${source.name}" (${source.id}). ` +
+              'The renderer never reported success or failure — this usually means the hidden capture ' +
+              'window itself failed to load, or the previous recording was still tearing down when this one started.'
+          )
+        )
       }, startupTimeout)
 
       const onStarted = (event: IpcMainEvent, payload: CaptureStartedPayload): void => {
@@ -176,7 +182,7 @@ export class WindowCaptureRecorder extends EventEmitter {
         this.writeChain = Promise.resolve()
         this.capturing = true
 
-        this.bindChunkListeners(webContentsId)
+        this.bindChunkListeners(webContentsId, win)
         // Set AFTER capture is actually confirmed active — RecorderStateMachine reads
         // "now" right after this resolves to compute the pre-roll trim offset.
         resolve()
@@ -188,7 +194,7 @@ export class WindowCaptureRecorder extends EventEmitter {
         clearTimeout(startupTimer)
         cleanupListeners()
         this.pendingSource = null
-        void this.teardownHiddenWindow()
+        void this.teardownHiddenWindow(win)
         reject(new Error(`Capture failed to start: ${payload.message}`))
       }
 
@@ -201,7 +207,7 @@ export class WindowCaptureRecorder extends EventEmitter {
 
   // Chunk/finished/error listeners for the lifetime of an active recording.
   // Bound after start() resolves; unbound in stop()/teardown.
-  private bindChunkListeners(webContentsId: number): void {
+  private bindChunkListeners(webContentsId: number, win: BrowserWindow): void {
     const onChunk = (event: IpcMainEvent, buf: ArrayBuffer): void => {
       if (event.sender.id !== webContentsId) return
       this.enqueueWrite(Buffer.from(buf))
@@ -214,7 +220,7 @@ export class WindowCaptureRecorder extends EventEmitter {
       ipcMain.removeListener(CAPTURE_CHUNK, onChunk)
       ipcMain.removeListener(CAPTURE_ERROR, onUnexpectedError)
       void this.finalizeWriteStream().finally(() => {
-        void this.teardownHiddenWindow()
+        void this.teardownHiddenWindow(win)
         this.emit('unexpectedStop', { code: null, outputPath, stderrTail: [payload.message] })
       })
     }
@@ -280,7 +286,7 @@ export class WindowCaptureRecorder extends EventEmitter {
         this.activeErrorListener = null
 
         void this.finalizeWriteStream()
-          .then(() => this.teardownHiddenWindow())
+          .then(() => this.teardownHiddenWindow(win))
           .then(() => {
             this.currentOutputPath = null
             resolve(outputPath)
@@ -323,9 +329,15 @@ export class WindowCaptureRecorder extends EventEmitter {
     })
   }
 
-  private async teardownHiddenWindow(): Promise<void> {
-    const win = this.hiddenWindow
-    this.hiddenWindow = null
+  // Takes the specific window this start()/stop() call owns, rather than reading the
+  // shared this.hiddenWindow field — Solo Shuffle can call stop() for round N and
+  // start() for round N+1 close enough together that round N's async teardown would
+  // otherwise run after this.hiddenWindow has already been overwritten with round
+  // N+1's window, destroying the wrong one (round N+1's capture would then hang until
+  // the startup timeout, since its window was destroyed before it could ever send
+  // CAPTURE_STARTED).
+  private async teardownHiddenWindow(win: BrowserWindow | null): Promise<void> {
+    if (this.hiddenWindow === win) this.hiddenWindow = null
     if (win !== null && !win.isDestroyed()) {
       win.destroy()
     }

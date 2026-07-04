@@ -118,9 +118,10 @@ After completing onboarding, settings are saved and the app goes straight to the
 | Video Bitrate | Recording quality in kbps (default: 8000) |
 | FPS | Frames per second (default: 30) |
 | Resolution | Output resolution or `native` to match your display |
-| Capture Device | Screen to capture *(macOS only)* |
-| Audio Device | Capture game audio via a loopback device like [BlackHole](https://existential.audio/blackhole/) *(macOS only)* |
+| Capture Window | Which window to record — auto-detects the WoW window by default (macOS and Windows); pick manually if multiple WoW clients are open |
 | Auto Cleanup | Automatically delete old recordings after N days or when storage exceeds N GB |
+
+Game audio is captured automatically alongside the video (system loopback) — no separate audio device setup or third-party tools required, on either platform.
 
 ---
 
