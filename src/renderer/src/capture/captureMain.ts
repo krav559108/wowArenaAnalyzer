@@ -116,7 +116,25 @@ async function startCapture(params: CaptureStartParams): Promise<void> {
 
   activeStream = stream
   const videoTrack = stream.getVideoTracks()[0]
+  const audioTracks = stream.getAudioTracks()
   console.warn(`[capture] getDisplayMedia resolved for "${params.sourceId}": ${describeTrack(videoTrack)}`)
+  if (audioTracks.length === 0) {
+    // System-audio loopback ('audio: loopback' in the main-process display-media
+    // handler) can silently come back with zero audio tracks — most commonly on
+    // macOS when the OS's audio-capture permission isn't granted (on macOS 14+ this
+    // is a distinct "Screen & System Audio Recording" permission, not covered by the
+    // older plain "Screen Recording" grant) or on macOS < 13, which doesn't support
+    // system-audio capture via ScreenCaptureKit at all. Doesn't block the recording
+    // (video-only is still useful) but is worth flagging clearly.
+    console.warn(
+      '[capture] No audio track in the captured stream — recording will have no audio. ' +
+        'On macOS, check System Settings → Privacy & Security → Screen Recording (or ' +
+        '"Screen & System Audio Recording" on macOS 14+) — this permission may need to be ' +
+        'removed and re-granted the same way as after an app update. Requires macOS 13+.'
+    )
+  } else {
+    console.warn(`[capture] Audio track: ${describeTrack(audioTracks[0])}`)
+  }
 
   const candidates = supportedMimeCandidates()
 

@@ -8,6 +8,7 @@ import { usePlayer } from '@/composables/usePlayer'
 import TimelineCanvas from './TimelineCanvas.vue'
 import MeterWidget from './MeterWidget.vue'
 import CooldownTimeline from './CooldownTimeline.vue'
+import DeathLog from './DeathLog.vue'
 import { TIMELINE_COLORS, SPELL_CLASS_MAP, SPELL_SPEC_MAP, HEALER_SPEC_BY_CLASS } from '@shared/constants'
 import { toFileUrl } from '@/utils/fileUrl'
 import { buildCharacterStatsUrl } from '@/utils/characterLinks'
@@ -241,13 +242,6 @@ function playerSpec(name: string): string {
   return ''
 }
 
-const HEALER_SPECS = new Set(['Holy', 'Discipline', 'Restoration', 'Mistweaver', 'Preservation', 'Augmentation'])
-
-function isHealer(name: string): boolean {
-  if (confirmedHealerSet.value.has(name)) return true
-  return HEALER_SPECS.has(playerSpec(name))
-}
-
 // -------------------------------------------------------------------------
 // Event type filter (click legend to toggle)
 // -------------------------------------------------------------------------
@@ -325,6 +319,18 @@ const cooldownRows = computed(() =>
 // Events
 // -------------------------------------------------------------------------
 const showEvents = ref(false)
+
+// -------------------------------------------------------------------------
+// Death Log — all deaths/kills regardless of the Events legend's hidden-type
+// filters, so hiding "Death"/"Kill" there doesn't also empty this section.
+// -------------------------------------------------------------------------
+const showDeathLog = ref(false)
+
+const deathEvents = computed(() =>
+  events.value
+    .filter((ev) => ev.type === 'death-player' || ev.type === 'death-enemy')
+    .sort((a, b) => a.timestamp - b.timestamp)
+)
 
 // -------------------------------------------------------------------------
 // Graphs
@@ -551,11 +557,6 @@ function playerRating(name: string): number | undefined {
             :key="name"
             class="flex items-center gap-1 py-0.5"
           >
-            <span
-              v-if="isHealer(name)"
-              class="text-green-400 text-[10px] leading-none flex-shrink-0"
-              title="Healer"
-            >✚</span>
             <button
               class="min-w-0 flex-1 text-xs truncate text-left hover:underline"
               :style="{ color: playerColor(name) }"
@@ -590,11 +591,6 @@ function playerRating(name: string): number | undefined {
             :key="name"
             class="flex items-center gap-1 py-0.5"
           >
-            <span
-              v-if="isHealer(name)"
-              class="text-green-400 text-[10px] leading-none flex-shrink-0"
-              title="Healer"
-            >✚</span>
             <button
               class="min-w-0 flex-1 text-xs truncate text-left hover:underline"
               :style="{ color: playerColor(name) }"
@@ -1062,6 +1058,25 @@ function playerRating(name: string): number | undefined {
           >
             No tracked events in this match
           </p>
+        </div>
+      </div>
+
+      <!-- Death Log (collapsible) -->
+      <div>
+        <button
+          class="flex items-center gap-2 text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 hover:text-zinc-300 w-full text-left"
+          @click="showDeathLog = !showDeathLog"
+        >
+          <span>Death Log</span>
+          <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-800 text-zinc-400 leading-none">{{ deathEvents.length }}</span>
+          <span class="text-zinc-600">{{ showDeathLog ? '▲' : '▼' }}</span>
+        </button>
+        <div v-if="showDeathLog">
+          <DeathLog
+            :deaths="deathEvents"
+            :player-color="playerColor"
+            @seek="handleSeek"
+          />
         </div>
       </div>
     </div>

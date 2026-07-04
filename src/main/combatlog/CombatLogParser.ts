@@ -280,7 +280,7 @@ export interface CombatantInfoEvent {
   playerName: string
   team: number        // 0 = enemy, 1 = local player's team
   personalRating: number
-  specId: number | null  // WoW spec ID from trailing field (may be 0 if not available)
+  specId: number | null  // WoW spec ID (last stat field before the talents bracket), null if not available
   timestamp: Date
 }
 
@@ -732,22 +732,24 @@ export class CombatLogParser extends EventEmitter {
     // populated by standard-prefix events (SPELL_AURA_REMOVED etc.) that fire nearby.
     const playerName = this.guidNames.get(playerGuid) ?? ''
 
-    // Trailing fields after the last ']' bracket section:
-    // [specOrLoadoutID, bracketID, personalRating, honorLevel]
+    // specID is the LAST plain numeric field before the FIRST '[' bracket (the stat
+    // block: strength/agility/.../versatility/armor/specID, then talents/pvp-talents/
+    // gear/aura brackets follow) — verified against real Midnight combat logs, where
+    // this field consistently matches a valid spec ID (e.g. 64=Frost Mage, 260=Outlaw
+    // Rogue, 1467=Devastation Evoker). Previously this read the first field in the
+    // trailing section AFTER the LAST bracket instead, which is a different field
+    // entirely and produced garbage (e.g. "78", not a real spec ID) — silently
+    // dropping every player's spec whenever that garbage number didn't happen to
+    // collide with a real WOW_SPEC_ID_MAP key.
+    const specId = parseCombatantInfoSpecId(rawLine)
+
+    // Trailing fields after the last ']' bracket section: [.., personalRating, ..]
     const trailing = parseCombatantInfoTrailing(rawLine)
-
-    // Diagnostic: log trailing to verify format per Midnight patch
-    console.warn('[Parser] COMBATANT_INFO trailing:', JSON.stringify(trailing), '| playerName:', playerName || '(unknown)', '| team:', team)
-
     if (trailing.length < 4) return
 
     // personalRating is the third-to-last field (index -2)
     const personalRating = parseInt(trailing[trailing.length - 2] ?? '', 10)
     if (isNaN(personalRating)) return
-
-    // specId is the first trailing field after the last ']'
-    const rawSpecId = parseInt(trailing[0] ?? '', 10)
-    const specId = !isNaN(rawSpecId) && rawSpecId > 0 ? rawSpecId : null
 
     this.emit('combatantInfo', { playerGuid, playerName, team, personalRating, specId, timestamp })
   }
@@ -967,6 +969,22 @@ function parseCombatantInfoTrailing(line: string): string[] {
     .split(',')
     .map((s) => s.trim())
     .filter((s) => s.length > 0)
+}
+
+// Extracts the spec ID from a COMBATANT_INFO line — the last plain field in the stat
+// block that precedes the first '[' (talents list). See handleCombatantInfo for the
+// verification notes on why this position (not the trailing-after-last-bracket one)
+// is correct.
+function parseCombatantInfoSpecId(line: string): number | null {
+  const firstBracket = line.indexOf('[')
+  if (firstBracket === -1) return null
+  const statFields = line
+    .substring(0, firstBracket)
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+  const rawSpecId = parseInt(statFields[statFields.length - 1] ?? '', 10)
+  return !isNaN(rawSpecId) && rawSpecId > 0 ? rawSpecId : null
 }
 
 // Minimal CSV parser — handles double-quoted fields.
