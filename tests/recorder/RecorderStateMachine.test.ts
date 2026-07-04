@@ -1217,6 +1217,7 @@ describe('RecorderStateMachine — death recap: damage/healing/CC/defensives win
       spellId: 100,
       spellName: 'Mortal Strike',
       amount: 40000,
+      isCritical: false,
       timestamp: new Date(MATCH_START_TS.getTime() + 52_000)
     })
 
@@ -1268,6 +1269,7 @@ describe('RecorderStateMachine — death recap: damage/healing/CC/defensives win
       spellId: 101,
       spellName: 'Slam',
       amount: 5000,
+      isCritical: false,
       timestamp: new Date(MATCH_START_TS.getTime() + 30_000)
     })
 

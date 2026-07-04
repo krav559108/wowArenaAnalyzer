@@ -35,6 +35,7 @@ export interface DeathHit {
   // HP% of the target just before this hit landed (requires Advanced Combat Logging)
   hpPct?: number
   casterName?: string
+  isCritical?: boolean
 }
 
 // A CC or defensive/trinket cast in the run-up to a death (no damage amount).

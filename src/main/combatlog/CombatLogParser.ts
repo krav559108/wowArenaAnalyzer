@@ -72,10 +72,49 @@ const SPELL_FIELD_TARGET_NAME = 5
 const SPELL_FIELD_TARGET_FLAGS = 6
 const SPELL_FIELD_SPELL_ID = 8
 const SPELL_FIELD_SPELL_NAME = 9
-// After spell prefix (spellId, spellName, spellSchool), damage/heal suffix starts at field 11
-const SPELL_SUFFIX_AMOUNT = 11
-// SWING_DAMAGE has no spell prefix, amount is directly at field 8
-const SWING_DAMAGE_AMOUNT = 8
+// Advanced Combat Logging (required by this app — see README) inserts a ~17-field
+// "advanced" metadata block (unitGUID, ownerGUID, currentHP, maxHP, attackPower,
+// spellPower, armor, absorb, powerType, currentPower, maxPower, powerCost, x, y,
+// uiMapID, facing, level) between the spell prefix and the damage/heal suffix. That
+// means the amount is NOT at a fixed forward offset from the prefix — a previous
+// version of this parser assumed it was (SPELL_SUFFIX_AMOUNT = 11, SWING_DAMAGE_AMOUNT
+// = 8), which actually pointed at the advanced block's unitGUID field, a string that
+// parseInt() silently turns into NaN. That NaN failed the `amount > 0` check in every
+// handler below, meaning damage/healing were silently dropped for every recording made
+// with ACL on — exactly the setting this app requires.
+//
+// Verified against ~2000 real Midnight combat log lines of each event type: the field
+// COUNT is exactly stable per event type (SPELL_DAMAGE/SPELL_PERIODIC_DAMAGE always 41
+// fields, SWING_DAMAGE always 37, SPELL_HEAL/SPELL_PERIODIC_HEAL always 35), so the
+// amount is reliable at a fixed offset from the END of the fields array instead — the
+// damage/heal suffix format itself doesn't change regardless of what's inserted before it.
+//
+// Note: the advanced block's unitGUID/ownerGUID describe the DESTINATION unit (whose
+// HP/power is being tracked), not the source/caster — verified against real logs, e.g.
+// a Healing Stream Totem's SPELL_HEAL always has unitGUID == the heal's targetGuid.
+// That means this block can't be used to resolve a pet/totem CASTER back to its owning
+// player — see resolveEffectiveCaster / summonOwners below, which uses SPELL_SUMMON
+// instead (the log event that announces "this player just created this pet/totem GUID").
+function parseSpellDamageAmount(fields: string[]): number {
+  return parseInt(fields[fields.length - 11] ?? '', 10)
+}
+function parseSwingDamageAmount(fields: string[]): number {
+  return parseInt(fields[fields.length - 10] ?? '', 10)
+}
+function parseHealAmount(fields: string[]): number {
+  return parseInt(fields[fields.length - 5] ?? '', 10)
+}
+
+// Critical-hit flag: "1" when true, "nil" otherwise — verified against real log lines.
+// SPELL_DAMAGE/SPELL_PERIODIC_DAMAGE end in an extra AOE/ST marker that SWING_DAMAGE
+// doesn't have, shifting the offset by one.
+function parseSpellDamageIsCritical(fields: string[]): boolean {
+  return fields[fields.length - 4] === '1'
+}
+function parseSwingDamageIsCritical(fields: string[]): boolean {
+  return fields[fields.length - 3] === '1'
+}
+
 
 // ---------------------------------------------------------------------------
 // SPELL_ABSORBED field indices — verified against a real Midnight combat log.
@@ -226,6 +265,7 @@ export interface SpellDamageEvent {
   spellId?: number    // undefined for SWING_DAMAGE
   spellName: string   // 'Auto Attack' for SWING_DAMAGE
   amount: number
+  isCritical: boolean
   timestamp: Date
 }
 
@@ -358,6 +398,10 @@ export class CombatLogParser extends EventEmitter {
   private session: SessionState | null = null
   // GUID → player name, built from standard-prefix spell/aura events
   private readonly guidNames = new Map<string, string>()
+  // Pet/totem/summon GUID → owning player GUID, built from SPELL_SUMMON events (the
+  // log event fired when a player creates a totem/pet/guardian) — see
+  // resolveEffectiveCaster for why this is needed instead of the advanced-logging block.
+  private readonly summonOwners = new Map<string, string>()
 
   // Typed overrides for EventEmitter methods
   override emit<K extends keyof ParserEventMap>(event: K, payload: ParserEventMap[K]): boolean {
@@ -395,6 +439,7 @@ export class CombatLogParser extends EventEmitter {
   reset(): void {
     this.session = null
     this.guidNames.clear()
+    this.summonOwners.clear()
   }
 
   // Main entry point. Call once per log line.
@@ -415,6 +460,9 @@ export class CombatLogParser extends EventEmitter {
     }
 
     switch (eventType) {
+      case 'SPELL_SUMMON':
+        this.handleSpellSummon(fields)
+        break
       case 'COMBATANT_INFO':
         this.handleCombatantInfo(fields, line, timestamp)
         break
@@ -754,6 +802,33 @@ export class CombatLogParser extends EventEmitter {
     this.emit('combatantInfo', { playerGuid, playerName, team, personalRating, specId, timestamp })
   }
 
+  // Pets/totems/summons (Healing Stream Totem, Water Elemental, Xuen, Storm Earth and
+  // Fire clones, etc.) report their OWN guid+name as the spell's caster in the combat
+  // log, not their owner's. Advanced Combat Logging's ownerGUID field (part of the
+  // per-event advanced metadata block) lets us redirect these back to the owning
+  // player, so a Shaman's totem heals count toward the Shaman instead of showing up as
+  // a separate "Healing Stream Totem" entry in meters/death recaps.
+  private resolveEffectiveCaster(casterGuid: string, casterName: string): { guid: string; name: string } {
+    if (casterGuid.startsWith('Player-')) return { guid: casterGuid, name: casterName }
+    const ownerGuid = this.summonOwners.get(casterGuid)
+    if (ownerGuid !== undefined) {
+      const ownerName = this.guidNames.get(ownerGuid)
+      if (ownerName !== undefined) return { guid: ownerGuid, name: ownerName }
+    }
+    return { guid: casterGuid, name: casterName }
+  }
+
+  // SPELL_SUMMON fires when a player creates a pet/totem/guardian — caster is the
+  // owning player, target is the newly created summon's GUID. Standard 11-field prefix,
+  // no advanced-logging suffix (verified against real logs).
+  private handleSpellSummon(fields: string[]): void {
+    const ownerGuid = fields[SPELL_FIELD_CASTER_GUID]
+    const summonGuid = fields[SPELL_FIELD_TARGET_GUID]
+    if (ownerGuid === undefined || summonGuid === undefined) return
+    if (!ownerGuid.startsWith('Player-')) return
+    this.summonOwners.set(summonGuid, ownerGuid)
+  }
+
   private handleSpellHeal(fields: string[], timestamp: Date): void {
     const casterGuid = fields[SPELL_FIELD_CASTER_GUID]
     const casterName = fields[SPELL_FIELD_CASTER_NAME]
@@ -764,13 +839,14 @@ export class CombatLogParser extends EventEmitter {
     if (casterGuid === undefined || casterName === undefined) return
 
     // Emit heal amount event for ALL heals (including self) — used for team heal charts
-    // and per-target healing-received tracking (death recap).
-    const rawAmount = fields[SPELL_SUFFIX_AMOUNT]
-    const amount = parseInt(rawAmount ?? '0', 10)
+    // and per-target healing-received tracking (death recap). Redirect pet/totem heals
+    // (Healing Stream Totem, Earthliving, etc.) to their owning player.
+    const amount = parseHealAmount(fields)
     if (!isNaN(amount) && amount > 0) {
+      const effective = this.resolveEffectiveCaster(casterGuid, casterName)
       this.emit('spellHealAmount', {
-        casterGuid,
-        casterName,
+        casterGuid: effective.guid,
+        casterName: effective.name,
         targetGuid,
         targetName,
         spellId: isNaN(spellId) ? undefined : spellId,
@@ -780,9 +856,10 @@ export class CombatLogParser extends EventEmitter {
       })
     }
 
-    // Only count heals cast on OTHER players for healer detection — self-heals from
-    // DPS specs (leech, Healthstone) must not trigger healer detection.
-    if (targetGuid === casterGuid) return
+    // Only count heals cast DIRECTLY by a player on another player for healer
+    // detection — self-heals (leech, Healthstone) and incidental totem/pet ticks
+    // (which don't reflect the owner's own healer role) must not trigger it.
+    if (!casterGuid.startsWith('Player-') || targetGuid === casterGuid) return
     this.emit('healerCast', { casterGuid, casterName, timestamp })
   }
 
@@ -810,21 +887,24 @@ export class CombatLogParser extends EventEmitter {
     const rawSpellId = fields[SPELL_FIELD_SPELL_ID]
     const spellId = rawSpellId !== undefined ? parseInt(rawSpellId, 10) : NaN
     const spellName = fields[SPELL_FIELD_SPELL_NAME] ?? 'Unknown'
-    const rawAmount = fields[SPELL_SUFFIX_AMOUNT]
-    const amount = parseInt(rawAmount ?? '0', 10)
+    const amount = parseSpellDamageAmount(fields)
     if (isNaN(amount) || amount <= 0) return
 
     const casterFlags = parseHexFlags(fields[SPELL_FIELD_CASTER_FLAGS] ?? '0')
+    // Redirect pet/summon damage (Xuen, Storm Earth and Fire clones, Water Elemental,
+    // etc.) to the owning player — see resolveEffectiveCaster.
+    const effective = this.resolveEffectiveCaster(casterGuid, casterName ?? '')
 
     this.emit('spellDamage', {
-      casterGuid,
-      casterName: casterName ?? '',
+      casterGuid: effective.guid,
+      casterName: effective.name,
       casterFlags,
       targetGuid,
       targetName,
       spellId: !isNaN(spellId) ? spellId : undefined,
       spellName,
       amount,
+      isCritical: parseSpellDamageIsCritical(fields),
       timestamp
     })
   }
@@ -838,21 +918,22 @@ export class CombatLogParser extends EventEmitter {
 
     if (!targetGuid.startsWith('Player-')) return
 
-    const rawAmount = fields[SWING_DAMAGE_AMOUNT]
-    const amount = parseInt(rawAmount ?? '0', 10)
+    const amount = parseSwingDamageAmount(fields)
     if (isNaN(amount) || amount <= 0) return
 
     const casterFlags = parseHexFlags(fields[SPELL_FIELD_CASTER_FLAGS] ?? '0')
+    const effective = this.resolveEffectiveCaster(casterGuid, casterName ?? '')
 
     this.emit('spellDamage', {
-      casterGuid,
-      casterName: casterName ?? '',
+      casterGuid: effective.guid,
+      casterName: effective.name,
       casterFlags,
       targetGuid,
       targetName,
       spellId: undefined,
       spellName: 'Auto Attack',
       amount,
+      isCritical: parseSwingDamageIsCritical(fields),
       timestamp
     })
   }

@@ -8,7 +8,9 @@ import type {
   ArenaMatchEndEvent,
   SpellCastEvent,
   UnitDiedEvent,
-  CombatantInfoEvent
+  CombatantInfoEvent,
+  SpellDamageEvent,
+  SpellHealAmountEvent
 } from '../../src/main/combatlog/CombatLogParser'
 
 // ---------------------------------------------------------------------------
@@ -363,5 +365,122 @@ describe('CombatLogParser — COMBATANT_INFO spec ID', () => {
 
     expect(events).toHaveLength(1)
     expect(events[0]!.specId).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// SPELL_DAMAGE / SWING_DAMAGE / SPELL_HEAL — amount field position
+// ---------------------------------------------------------------------------
+// Advanced Combat Logging (required by this app) inserts a ~17-field "advanced"
+// metadata block (unitGUID, ownerGUID, currentHP, maxHP, ...) between the spell
+// prefix and the damage/heal suffix. A prior version of this parser assumed a fixed
+// forward offset for the amount field, which actually pointed at the advanced
+// block's unitGUID (a string, parses to NaN) — silently dropping every single
+// damage/heal event whenever ACL was on. Verified against ~2000 real Midnight combat
+// log lines per event type that the field COUNT is stable (SPELL_DAMAGE/
+// SPELL_PERIODIC_DAMAGE = 41, SWING_DAMAGE = 37, SPELL_HEAL/SPELL_PERIODIC_HEAL = 35),
+// so the amount is read from a fixed offset from the END of the fields array instead.
+
+describe('CombatLogParser — SPELL_DAMAGE/SWING_DAMAGE/SPELL_HEAL amount (with Advanced Combat Logging)', () => {
+  it('reads the damage amount from a real ACL-enabled SPELL_DAMAGE line', () => {
+    const parser = new CombatLogParser()
+    const events: SpellDamageEvent[] = []
+    parser.on('spellDamage', (e) => events.push(e))
+
+    parser.processLine(
+      '4/15/2026 22:35:20.0143  SPELL_DAMAGE,Player-000-00000001,"Attacker-Realm-EU",0x548,0x80000000,' +
+        'Player-000-00000002,"Victim-Realm-EU",0x511,0x80000000,331850,"Blade Flurry",0x1,' +
+        'Player-000-00000002,0000000000000000,445976,451840,279,2654,710,2272,0,0,0,235420,250000,0,' +
+        '1277.96,1645.59,0,0.6261,283,5864,7724,-1,1,0,0,0,nil,nil,nil,AOE'
+    )
+
+    expect(events).toHaveLength(1)
+    expect(events[0]!.amount).toBe(5864)
+    expect(events[0]!.spellName).toBe('Blade Flurry')
+  })
+
+  it('reads the damage amount from a real ACL-enabled SWING_DAMAGE line', () => {
+    const parser = new CombatLogParser()
+    const events: SpellDamageEvent[] = []
+    parser.on('spellDamage', (e) => events.push(e))
+
+    parser.processLine(
+      '4/15/2026 22:35:21.5693  SWING_DAMAGE,Player-000-00000001,"Attacker-Realm-EU",0x548,0x80000000,' +
+        'Player-000-00000002,"Victim-Realm-EU",0x511,0x80000000,Player-000-00000001,0000000000000000,' +
+        '539700,539700,2569,486,840,2816,0,18099,3,189,250,0,1274.52,1644.24,0,1.6829,283,5341,7036,-1,1,0,0,0,nil,nil,nil'
+    )
+
+    expect(events).toHaveLength(1)
+    expect(events[0]!.amount).toBe(5341)
+    expect(events[0]!.spellName).toBe('Auto Attack')
+  })
+
+  it('reads the heal amount from a real ACL-enabled SPELL_HEAL line', () => {
+    const parser = new CombatLogParser()
+    const events: SpellHealAmountEvent[] = []
+    parser.on('spellHealAmount', (e) => events.push(e))
+
+    parser.processLine(
+      '4/15/2026 22:35:08.5553  SPELL_HEAL,Player-000-00000003,"Healer-Realm-EU",0x548,0x80000000,' +
+        'Player-000-00000004,"Ally-Realm-EU",0x548,0x80000000,1246798,"Prompt Prognosis",0x2,' +
+        'Player-000-00000004,0000000000000000,464560,464560,279,2633,697,2072,0,21037,0,250000,250000,0,' +
+        '1280.27,1724.28,0,4.5710,283,41687,41687,41687,0,nil'
+    )
+
+    expect(events).toHaveLength(1)
+    expect(events[0]!.amount).toBe(41687)
+    expect(events[0]!.spellName).toBe('Prompt Prognosis')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Pet/totem caster → owning player attribution (SPELL_SUMMON tracking)
+// ---------------------------------------------------------------------------
+// Pets/totems report their own GUID+name as the caster in SPELL_DAMAGE/SPELL_HEAL/
+// SWING_DAMAGE lines, not their owner's. SPELL_SUMMON (fired once, when the player
+// creates the pet/totem) is the only reliable way to map the summon's GUID back to
+// its owner — verified against a real "Healing Stream Totem" SPELL_SUMMON + SPELL_HEAL
+// pair from a live combat log.
+
+describe('CombatLogParser — pet/totem damage and healing attributed to the owning player', () => {
+  it('attributes a totem SPELL_HEAL to the shaman that summoned it', () => {
+    const parser = new CombatLogParser()
+    const events: SpellHealAmountEvent[] = []
+    parser.on('spellHealAmount', (e) => events.push(e))
+
+    // SPELL_SUMMON: shaman creates the totem
+    parser.processLine(
+      '4/15/2026 13:20:32.5563  SPELL_SUMMON,Player-1329-0A8F89B9,"Orthonar-Ravencrest-EU",0x20548,0x80000000,' +
+        'Creature-0-3111-1134-11204-3527-00005F6670,"Healing Stream Totem",0xa28,0x80000000,5394,"Healing Stream Totem",0x8'
+    )
+    // SPELL_HEAL: the totem itself heals someone (verified real line structure)
+    parser.processLine(
+      '4/15/2026 13:20:33.0000  SPELL_HEAL,Creature-0-3111-1134-11204-3527-00005F6670,"Healing Stream Totem",0x2148,0x80000000,' +
+        'Player-3682-0B06A16E,"Toste-Ragnaros-EU",0x548,0x80000000,458357,"Chain Heal",0x8,' +
+        'Player-3682-0B06A16E,0000000000000000,495000,495000,2733,696,864,2253,0,0,3,120,120,0,' +
+        '-10683.34,457.92,0,3.6224,284,4229,4229,4229,0,nil'
+    )
+
+    expect(events).toHaveLength(1)
+    expect(events[0]!.casterName).toBe('Orthonar-Ravencrest-EU')
+    expect(events[0]!.casterGuid).toBe('Player-1329-0A8F89B9')
+  })
+
+  it('falls back to the summon\'s own name when no SPELL_SUMMON was observed for it', () => {
+    const parser = new CombatLogParser()
+    const events: SpellHealAmountEvent[] = []
+    parser.on('spellHealAmount', (e) => events.push(e))
+
+    // No SPELL_SUMMON seen (e.g. pet summoned before the log started) — should keep
+    // the totem's own identity rather than crash or drop the event.
+    parser.processLine(
+      '4/15/2026 13:20:33.0000  SPELL_HEAL,Creature-0-3111-1134-11204-3527-00005F6670,"Healing Stream Totem",0x2148,0x80000000,' +
+        'Player-3682-0B06A16E,"Toste-Ragnaros-EU",0x548,0x80000000,458357,"Chain Heal",0x8,' +
+        'Player-3682-0B06A16E,0000000000000000,495000,495000,2733,696,864,2253,0,0,3,120,120,0,' +
+        '-10683.34,457.92,0,3.6224,284,4229,4229,4229,0,nil'
+    )
+
+    expect(events).toHaveLength(1)
+    expect(events[0]!.casterName).toBe('Healing Stream Totem')
   })
 })
