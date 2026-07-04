@@ -1,6 +1,6 @@
 {
   "name": "wow-arena-analyzer",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "description": "WoW arena recorder for macOS and Windows — auto-records arenas via combat log",
   "main": "out/main/index.js",
   "author": "Aleksandr Kravchenko",
