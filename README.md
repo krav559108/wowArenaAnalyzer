@@ -6,6 +6,15 @@ Supports **2v2, 3v3, and Rated Solo Shuffle** (Midnight / patch 12.x format).
 
 ---
 
+## Support the project
+
+If this app is useful to you, consider supporting its development:
+[**Donate**](https://www.donationalerts.com/r/alex_mu7)
+
+Donations and your support help and motivate me to keep developing this project. Thank you!
+
+---
+
 ## Requirements
 
 ### macOS

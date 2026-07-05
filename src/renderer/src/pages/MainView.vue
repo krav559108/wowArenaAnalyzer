@@ -227,6 +227,15 @@ const statusTextClass = computed(() => {
           <span :class="['text-xs', statusTextClass]">{{ statusLabel }}</span>
         </div>
 
+        <!-- Donate button -->
+        <button
+          class="px-2 py-0.5 rounded text-xs font-medium bg-pink-950/60 text-pink-400 hover:bg-pink-900/60 hover:text-pink-300 transition-colors"
+          title="Донаты и ваша поддержка помогают и мотивируют меня развивать данный проект. Спасибо!"
+          @click="() => window.electron.invoke('system:openUrl', { url: 'https://www.donationalerts.com/r/alex_mu7' })"
+        >
+          Donate
+        </button>
+
         <!-- Settings button -->
         <button
           class="p-1 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-300 transition-colors"
