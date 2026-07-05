@@ -68,7 +68,8 @@ function surfaceDrImmuneCC(timeline: TimelineEvent[]): DetectedMistake[] {
       timestamp: ev.timestamp,
       spellId: ev.spellId,
       spellName: ev.spellName,
-      targetName: ev.targetName
+      targetName: ev.targetName,
+      player: ev.casterName
     }))
 }
 
@@ -83,7 +84,8 @@ function surfaceBurstWithoutHealerCC(timeline: TimelineEvent[]): DetectedMistake
       timestamp: ev.timestamp,
       spellId: ev.spellId,
       spellName: ev.spellName,
-      targetName: ev.targetName
+      targetName: ev.targetName,
+      player: ev.casterName
     }))
 }
 
@@ -98,7 +100,8 @@ function surfaceBadInterrupts(timeline: TimelineEvent[]): DetectedMistake[] {
       timestamp: ev.timestamp,
       spellId: ev.spellId,
       spellName: ev.spellName,
-      targetName: ev.targetName
+      targetName: ev.targetName,
+      player: ev.casterName
     }))
 }
 
@@ -121,7 +124,8 @@ function detectIntoImmunity(
       timestamp: ev.timestamp,
       spellId: ev.spellId,
       spellName: ev.spellName,
-      targetName: ev.targetName
+      targetName: ev.targetName,
+      player: ev.casterName
     })
   }
   return mistakes
@@ -145,7 +149,8 @@ function detectBurstIntoDefensive(
       timestamp: ev.timestamp,
       spellId: ev.spellId,
       spellName: ev.spellName,
-      targetName: ev.targetName
+      targetName: ev.targetName,
+      player: ev.casterName
     })
   }
   return mistakes
@@ -168,7 +173,8 @@ function detectTrinketOnLowValueCC(
       timestamp: ev.timestamp,
       spellId: window.spellId,
       spellName: window.spellName,
-      targetName: ev.casterName
+      targetName: ev.casterName,
+      player: ev.casterName
     })
   }
   return mistakes
@@ -194,6 +200,7 @@ export function detectLateDefensives(timeline: TimelineEvent[]): DetectedMistake
       timestamp: ev.timestamp,
       spellId: ev.spellId,
       spellName: ev.spellName,
-      targetName: ev.casterName
+      targetName: ev.casterName,
+      player: ev.casterName
     }))
 }

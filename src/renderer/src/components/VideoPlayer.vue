@@ -56,6 +56,10 @@ const videoSrc = computed(() => toFileUrl(props.recording.videoPath))
 
 const hiddenTypes = ref(new Set<TimelineEventType>())
 
+// Mistakes panel player filter — declared here (not down by the rest of the Mistakes
+// section) because the props.recording.id watcher below resets it and runs immediately.
+const mistakePlayerFilter = ref<string | null>(null)
+
 watch(
   () => props.recording.id,
   () => {
@@ -63,6 +67,7 @@ watch(
     playerStore.setDuration(0)
     playerStore.setPlaying(false)
     hiddenTypes.value = new Set()
+    mistakePlayerFilter.value = null
     playerStore.setEvents(props.recording.metadata.events)
   },
   { immediate: true }
@@ -132,6 +137,40 @@ function handleSeek(time: number): void {
 // -------------------------------------------------------------------------
 const showMistakes = ref(false)
 const mistakes = computed(() => props.recording.metadata.mistakes ?? [])
+
+// Filter by the player a mistake is "about" (see DetectedMistake.player) — defaults to
+// showing everyone's; reset on recording change (see the props.recording.id watcher).
+const mistakePlayers = computed(() => {
+  const names = new Set<string>()
+  for (const m of mistakes.value) {
+    if (m.player) names.add(m.player)
+  }
+  return [...names].sort((a, b) => a.localeCompare(b))
+})
+const filteredMistakes = computed(() =>
+  mistakePlayerFilter.value === null
+    ? mistakes.value
+    : mistakes.value.filter((m) => m.player === mistakePlayerFilter.value)
+)
+
+// All known player names (either team) — used to highlight names mentioned inside a
+// mistake's title/tip text with that player's class color, so "the enemy healer was
+// completely free to react" reads at a glance instead of requiring parsing prose.
+const allKnownNames = computed(() => [...derivedTeams.value.playerTeam, ...derivedTeams.value.enemyTeam])
+
+interface TextSegment {
+  text: string
+  color?: string
+}
+
+function highlightNames(text: string): TextSegment[] {
+  const names = allKnownNames.value
+  if (names.length === 0) return [{ text }]
+  // Longest names first so e.g. "Mage-EU" doesn't shadow a match inside "Mage-EU-Something".
+  const escaped = [...names].sort((a, b) => b.length - a.length).map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const re = new RegExp(`(${escaped.join('|')})`, 'g')
+  return text.split(re).map((part) => (names.includes(part) ? { text: part, color: playerColor(part) } : { text: part }))
+}
 
 const SEVERITY_CLASSES: Record<string, string> = {
   HIGH: 'bg-red-900/60 text-red-300 border-red-800/60',
@@ -663,31 +702,75 @@ function playerRating(name: string): number | undefined {
         </button>
         <div
           v-if="showMistakes"
-          class="space-y-1.5"
         >
-          <button
-            v-for="(m, i) in mistakes"
-            :key="i"
-            class="w-full flex items-start gap-2 text-left bg-zinc-900 hover:bg-zinc-800/80 rounded-lg p-2.5 transition-colors"
-            @click="handleSeek(m.timestamp)"
+          <!-- Per-player filter — defaults to showing everyone's mistakes. -->
+          <div
+            v-if="mistakePlayers.length > 1"
+            class="flex flex-wrap gap-1.5 mb-2"
           >
-            <span
-              class="text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none border flex-shrink-0 mt-0.5"
-              :class="SEVERITY_CLASSES[m.severity]"
-            >{{ m.severity }}</span>
-            <div class="flex-1 min-w-0">
-              <p class="text-xs text-zinc-200 font-medium">
-                {{ m.title }}<span
-                  v-if="m.targetName"
-                  class="text-zinc-500 font-normal"
-                > · {{ m.targetName }}</span>
-              </p>
-              <p class="text-xs text-zinc-500 mt-0.5">
-                {{ m.tip }}
-              </p>
-            </div>
-            <span class="text-[10px] text-zinc-600 flex-shrink-0 mt-0.5">{{ fmtSecs(m.timestamp) }}</span>
-          </button>
+            <button
+              class="px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors"
+              :class="mistakePlayerFilter === null
+                ? 'bg-zinc-700 border-zinc-500 text-zinc-100'
+                : 'bg-zinc-900 border-zinc-700 text-zinc-500 hover:border-zinc-500'"
+              @click="mistakePlayerFilter = null"
+            >
+              All
+            </button>
+            <button
+              v-for="name in mistakePlayers"
+              :key="name"
+              class="px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors"
+              :class="mistakePlayerFilter === name
+                ? 'bg-zinc-700 border-zinc-500'
+                : 'bg-zinc-900 border-zinc-700 hover:border-zinc-500'"
+              :style="{ color: playerColor(name) }"
+              @click="mistakePlayerFilter = name"
+            >
+              {{ name }}
+            </button>
+          </div>
+
+          <p
+            v-if="filteredMistakes.length === 0"
+            class="text-xs text-zinc-600 py-2 text-center"
+          >
+            No mistakes for this player
+          </p>
+
+          <div class="space-y-1.5">
+            <button
+              v-for="(m, i) in filteredMistakes"
+              :key="i"
+              class="w-full flex items-start gap-2 text-left bg-zinc-900 hover:bg-zinc-800/80 rounded-lg p-2.5 transition-colors"
+              @click="handleSeek(m.timestamp)"
+            >
+              <span
+                class="text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none border flex-shrink-0 mt-0.5"
+                :class="SEVERITY_CLASSES[m.severity]"
+              >{{ m.severity }}</span>
+              <div class="flex-1 min-w-0">
+                <p class="text-xs text-zinc-200 font-medium">
+                  <span
+                    v-for="(seg, si) in highlightNames(m.title)"
+                    :key="si"
+                    :style="seg.color ? { color: seg.color } : {}"
+                  >{{ seg.text }}</span><span
+                    v-if="m.targetName"
+                    class="text-zinc-500 font-normal"
+                  > · <span :style="{ color: playerColor(m.targetName) }">{{ m.targetName }}</span></span>
+                </p>
+                <p class="text-xs text-zinc-500 mt-0.5">
+                  <span
+                    v-for="(seg, si) in highlightNames(m.tip)"
+                    :key="si"
+                    :style="seg.color ? { color: seg.color } : {}"
+                  >{{ seg.text }}</span>
+                </p>
+              </div>
+              <span class="text-[10px] text-zinc-600 flex-shrink-0 mt-0.5">{{ fmtSecs(m.timestamp) }}</span>
+            </button>
+          </div>
         </div>
       </div>
 

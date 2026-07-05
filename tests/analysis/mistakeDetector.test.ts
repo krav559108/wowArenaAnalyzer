@@ -122,6 +122,18 @@ describe('detectMistakes', () => {
     expect(detectMistakes(timeline, windows({}))).toHaveLength(0)
   })
 
+  it('sets player to the caster (who should learn from it), not the affected target', () => {
+    const timeline: TimelineEvent[] = [
+      { timestamp: 30, type: 'offensive', spellId: 12472, spellName: 'Icy Veins', target: 'enemy', targetName: 'Warrior-EU', casterName: 'Mage-EU' }
+    ]
+    const auraWindows = windows({
+      'Warrior-EU': [{ spellId: 871, spellName: 'Shield Wall', start: 28, end: 35 }]
+    })
+    const mistakes = detectMistakes(timeline, auraWindows)
+    expect(mistakes[0]?.player).toBe('Mage-EU')
+    expect(mistakes[0]?.targetName).toBe('Warrior-EU')
+  })
+
   it('returns mistakes sorted by timestamp', () => {
     const timeline: TimelineEvent[] = [
       { timestamp: 50, type: 'interrupt', isSuccessful: false },

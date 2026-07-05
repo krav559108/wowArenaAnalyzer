@@ -85,6 +85,12 @@ export interface DetectedMistake {
   spellId?: number
   spellName?: string
   targetName?: string
+  // Name of the player this mistake is "about" — i.e. who should learn from it (usually
+  // the caster who committed the mistake), used to power the Mistakes panel's per-player
+  // filter. Distinct from targetName, which is whoever/whatever was affected by the cast
+  // (an enemy CC'd into immunity, a healer left free, etc.) and isn't always the same
+  // person as the one who made the mistake.
+  player?: string
 }
 
 // ---------------------------------------------------------------------------
