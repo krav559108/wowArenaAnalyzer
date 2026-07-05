@@ -20,7 +20,9 @@ import {
   SPELL_IDS_DEFENSIVE,
   SPELL_IDS_IMMUNITY,
   LOW_VALUE_CC_IDS,
-  DEATH_RECAP_WINDOW_SECS
+  DEATH_RECAP_WINDOW_SECS,
+  SOLO_SHUFFLE_ROUNDS_PER_SESSION,
+  SOLO_SHUFFLE_FINAL_ROUND_POST_ROLL_SECS
 } from '@shared/constants'
 import { getClassDefensives, type WowClass } from '@shared/classAbilities'
 import { detectMistakes, type AuraWindow, type DetectedMistake } from '../analysis/mistakeDetector'
@@ -195,6 +197,10 @@ interface SessionContext {
   rawOutputPath: string | null
   // Timer ID for Solo Shuffle session-end timeout (guards against missing ARENA_MATCH_END)
   soloShuffleTimeoutId: ReturnType<typeof setTimeout> | null
+  // Set while endSoloShuffleRound is mid-flight for the final round's post-roll delay
+  // (status stays 'recording' during that wait, so a second near-simultaneous death —
+  // e.g. two teammates dying in the same GCD — would otherwise re-enter and race it).
+  endingFinalRound: boolean
   // Timeline events accumulated during the current round (cleared on each ARENA_MATCH_START)
   pendingTimeline: TimelineEvent[]
   // Per-player defensive + trinket cooldown usage: playerName → (spellId → relSecs used).
@@ -419,6 +425,7 @@ export class RecorderStateMachine extends EventEmitter {
       matchStartedAt: null,
       rawOutputPath: null,
       soloShuffleTimeoutId: null,
+      endingFinalRound: false,
       pendingTimeline: [],
       playerCooldowns: new Map(),
       activeCCs: new Map(),
@@ -487,6 +494,7 @@ export class RecorderStateMachine extends EventEmitter {
         matchStartedAt: null,
         rawOutputPath: null,
         soloShuffleTimeoutId: null,
+        endingFinalRound: false,
         pendingTimeline: [],
         playerCooldowns: new Map(),
         activeCCs: new Map(),
@@ -684,6 +692,20 @@ export class RecorderStateMachine extends EventEmitter {
   }
 
   private onMatchEnd(winningTeam: number, durationSecs: number, matchEndTimestamp: Date): void {
+    // The final round's post-roll delay (see endSoloShuffleRound /
+    // SOLO_SHUFFLE_FINAL_ROUND_POST_ROLL_SECS) can still be in flight when
+    // ARENA_MATCH_END arrives — status is still 'recording' in that window. Don't race
+    // it: endSoloShuffleRound owns the full stop/emit/cleanup for that round once its
+    // delay elapses. Once it flips to 'waiting', fall through to the general branch
+    // below instead (also covers a solo-shuffle session ending before round 6 for any
+    // reason, which the old status-only check always handled).
+    if (this.session?.isSoloShuffle && this.session.endingFinalRound && this.status === 'recording') {
+      if (this.session.soloShuffleTimeoutId !== null) {
+        clearTimeout(this.session.soloShuffleTimeoutId)
+      }
+      return
+    }
+
     // Normal solo shuffle path: recorder was already stopped on the last UNIT_DIED and
     // processingRequired was emitted; just clean up the session and go idle.
     if (this.session?.isSoloShuffle && this.status === 'waiting') {
@@ -937,7 +959,14 @@ export class RecorderStateMachine extends EventEmitter {
   // that round, then transitions back to 'waiting' so the next ARENA_MATCH_START can
   // start a fresh recorder.
   private async endSoloShuffleRound(endTimestamp: Date): Promise<void> {
-    if (this.status !== 'recording' || this.session === null || this.session.matchStartedAt === null || this.session.rawOutputPath === null) return
+    if (
+      this.status !== 'recording' ||
+      this.session === null ||
+      this.session.matchStartedAt === null ||
+      this.session.rawOutputPath === null ||
+      this.session.endingFinalRound
+    )
+      return
 
     const {
       zoneName, bracket, sessionId, recordingStartedAt, roundNumber
@@ -946,7 +975,18 @@ export class RecorderStateMachine extends EventEmitter {
     if (bracket === null) return
 
     const matchStartedAt = this.session.matchStartedAt
-    const durationSecs = Math.max(0, (endTimestamp.getTime() - matchStartedAt.getTime()) / 1000)
+    const isFinalRound = roundNumber === SOLO_SHUFFLE_ROUNDS_PER_SESSION
+    // Set synchronously (before any await below) so a second near-simultaneous death
+    // during the final round's post-roll delay can't re-enter this function.
+    if (isFinalRound) this.session.endingFinalRound = true
+    // Rounds 1-5 stop the recorder right at the death timestamp so the next round's
+    // recorder.start() isn't delayed. The final round has no next round to rush for, so
+    // its duration (and therefore the trim below) is padded with a few extra seconds —
+    // otherwise the video cuts off at the exact death frame, missing the death
+    // animation/results screen the user actually watched play out live.
+    const durationSecs =
+      Math.max(0, (endTimestamp.getTime() - matchStartedAt.getTime()) / 1000) +
+      (isFinalRound ? SOLO_SHUFFLE_FINAL_ROUND_POST_ROLL_SECS : 0)
     const result = computeRoundResult(this.session.currentRoundRealDeaths)
     // Solo Shuffle re-teams every round — resolve rosters fresh per round, before the
     // next round's COMBATANT_INFO overwrites session.guidTeams.
@@ -968,6 +1008,13 @@ export class RecorderStateMachine extends EventEmitter {
     const enemyHealBySecond = buildChartBySecond(this.session.enemyHealSamples, durationSecs)
     const ratingBefore = this.session.ratingBefore ?? undefined
     const ratingAfter = this.session.ratingAfter ?? undefined
+
+    // For the final round, actually keep capturing for the padding above before
+    // stopping — otherwise durationSecs would ask FFmpeg to trim past the end of the
+    // raw file, which is harmless but pointless (nothing extra to show).
+    if (isFinalRound) {
+      await sleep(SOLO_SHUFFLE_FINAL_ROUND_POST_ROLL_SECS * 1000)
+    }
 
     // Transition and reset per-round state before awaiting stop, so that any
     // stray events arriving during the async stop don't affect the new round.
@@ -1008,6 +1055,14 @@ export class RecorderStateMachine extends EventEmitter {
         sessionId,
         totalRoundsInSession: 1
       })
+      // The final round has no round 7 to hand off to — own the full session cleanup
+      // here instead of waiting on ARENA_MATCH_END (which onMatchEnd now treats as a
+      // no-op for this session, see the endingFinalRound check there).
+      if (isFinalRound) {
+        this.session = null
+        this.playerClassInferred.clear()
+        this.transitionTo('idle')
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       console.error('[StateMachine] endSoloShuffleRound: recorder.stop() failed:', message)
@@ -1653,4 +1708,8 @@ function buildRawPath(dir: string, zone: string, sessionId: string, round: numbe
   const safeZone = zone.replace(/[^a-z0-9]/gi, '-').toLowerCase()
   const safeTs = sessionId.replace(/[^0-9T]/g, '').slice(0, 15) // "20260415T200000"
   return join(dir, `raw_${safeZone}_${safeTs}_r${round}.mp4`)
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }

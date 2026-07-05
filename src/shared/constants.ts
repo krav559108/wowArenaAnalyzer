@@ -66,6 +66,14 @@ export const BRACKET_FIELD_MAP: Readonly<Record<string, import('./ipc.types').Ar
 
 export const SOLO_SHUFFLE_ROUNDS_PER_SESSION = 6
 
+// Rounds 1-5 stop the recorder immediately on the round-ending death so the next
+// round's recorder.start() isn't delayed (Solo Shuffle re-queues the next round within
+// seconds). The final round has no next round to rush for, so its recorder.stop() is
+// delayed by this many seconds first — otherwise the raw capture (and therefore the
+// trimmed output) ends at the exact death frame, cutting off the death animation/results
+// screen the user actually watched play out live.
+export const SOLO_SHUFFLE_FINAL_ROUND_POST_ROLL_SECS = 3
+
 // ---------------------------------------------------------------------------
 // Death recap
 // ---------------------------------------------------------------------------

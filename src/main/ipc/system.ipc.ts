@@ -194,10 +194,21 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
     return { connected: true, name: info.name, spec: info.spec, className: info.class, needsUpdate }
   })
 
-  // Open a URL in the user's default browser.
-  ipcMain.handle('system:openUrl', (_event, { url }: { url: string }): void => {
-    void shell.openExternal(url)
-  })
+  // Open a URL in the user's default browser. Reports success/failure — shell.openExternal
+  // can reject (unregistered protocol handler, sandboxing, etc.) and callers otherwise
+  // have no way to tell "opened invisibly in the background" apart from "silently did
+  // nothing", which reads identically to the user.
+  ipcMain.handle(
+    'system:openUrl',
+    async (_event, { url }: { url: string }): Promise<{ success: boolean; error?: string }> => {
+      try {
+        await shell.openExternal(url)
+        return { success: true }
+      } catch (e) {
+        return { success: false, error: e instanceof Error ? e.message : String(e) }
+      }
+    }
+  )
 
   // Relaunch the app — used after path settings changes that require a restart.
   ipcMain.handle('system:relaunch', (): void => {

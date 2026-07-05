@@ -101,6 +101,19 @@ async function refreshAddonStatus(): Promise<void> {
 }
 
 // -------------------------------------------------------------------------
+// Donate button
+// -------------------------------------------------------------------------
+
+const DONATE_URL = 'https://www.donationalerts.com/r/alex_mu7'
+
+async function openDonate(): Promise<void> {
+  const result = await window.electron.invoke('system:openUrl', { url: DONATE_URL })
+  if (!result.success) {
+    appStore.setError(`Couldn't open the donation page: ${result.error ?? 'unknown error'}`)
+  }
+}
+
+// -------------------------------------------------------------------------
 // Screen recording permission check
 // -------------------------------------------------------------------------
 
@@ -231,7 +244,7 @@ const statusTextClass = computed(() => {
         <button
           class="px-2 py-0.5 rounded text-xs font-medium bg-pink-950/60 text-pink-400 hover:bg-pink-900/60 hover:text-pink-300 transition-colors"
           title="Донаты и ваша поддержка помогают и мотивируют меня развивать данный проект. Спасибо!"
-          @click="() => window.electron.invoke('system:openUrl', { url: 'https://www.donationalerts.com/r/alex_mu7' })"
+          @click="openDonate"
         >
           Donate
         </button>

@@ -9,6 +9,7 @@ import type { CombatLogWatcher } from '../../src/main/combatlog/CombatLogWatcher
 import type { WindowCaptureRecorder } from '../../src/main/recorder/WindowCaptureRecorder'
 import type { ParserEventMap } from '../../src/main/combatlog/CombatLogParser'
 import { UNIT_FLAG_REACTION_HOSTILE } from '../../src/main/combatlog/CombatLogParser'
+import { SOLO_SHUFFLE_FINAL_ROUND_POST_ROLL_SECS } from '../../src/shared/constants'
 
 // ---------------------------------------------------------------------------
 // Minimal fakes
@@ -569,20 +570,27 @@ describe('RecorderStateMachine — Solo Shuffle session (Midnight: per-round rec
     machine.on('processingRequired', (e) => events.push(e))
 
     // Each round ends on UNIT_DIED, then the next ARENA_MATCH_START starts a fresh recorder.
-    for (let i = 0; i < 6; i++) {
-      const roundStart = new Date(R1_START.getTime() + i * 90_000)
-      watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: roundStart })
-      watcher.fireParser('unitDied', {
-        unitGuid: 'Player-Enemy',
-        unitName: 'EnemyPlayer-Realm',
-        destFlags: UNIT_FLAG_REACTION_HOSTILE,
-        unconscious: false,
-        timestamp: new Date(roundStart.getTime() + 60_000)
-      })
-      await flushPromises() // let endSoloShuffleRound complete and emit processingRequired
+    // The final round (6) additionally waits SOLO_SHUFFLE_FINAL_ROUND_POST_ROLL_SECS
+    // (real setTimeout) before its own stop()/emit — fake timers fast-forward that.
+    vi.useFakeTimers()
+    try {
+      for (let i = 0; i < 6; i++) {
+        const roundStart = new Date(R1_START.getTime() + i * 90_000)
+        watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: roundStart })
+        watcher.fireParser('unitDied', {
+          unitGuid: 'Player-Enemy',
+          unitName: 'EnemyPlayer-Realm',
+          destFlags: UNIT_FLAG_REACTION_HOSTILE,
+          unconscious: false,
+          timestamp: new Date(roundStart.getTime() + 60_000)
+        })
+        await vi.advanceTimersByTimeAsync(3_100) // covers the final round's post-roll delay; a no-op for rounds 1-5
+      }
+      watcher.fireParser('arenaMatchEnd', { ...matchEnd, timestamp: new Date(R1_START.getTime() + 6 * 90_000) })
+      await vi.advanceTimersByTimeAsync(0)
+    } finally {
+      vi.useRealTimers()
     }
-    watcher.fireParser('arenaMatchEnd', { ...matchEnd, timestamp: new Date(R1_START.getTime() + 6 * 90_000) })
-    await flushPromises()
 
     expect(events).toHaveLength(6)
     for (let i = 0; i < 6; i++) {
@@ -593,6 +601,61 @@ describe('RecorderStateMachine — Solo Shuffle session (Midnight: per-round rec
     }
     // All rounds share the same sessionId
     expect(new Set(events.map((e) => e.sessionId)).size).toBe(1)
+  })
+
+  it('delays stopping the recorder on the final round by the post-roll buffer, unlike earlier rounds', async () => {
+    watcher.fireParser('arenaZoneEntered', zoneEntered)
+    await flushPromises()
+
+    const events: ProcessingRequiredEvent[] = []
+    machine.on('processingRequired', (e) => events.push(e))
+
+    vi.useFakeTimers()
+    try {
+      // Rounds 1-5: recorder.stop() fires immediately on the round-ending death, no delay.
+      for (let i = 0; i < 5; i++) {
+        const roundStart = new Date(R1_START.getTime() + i * 90_000)
+        watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: roundStart })
+        watcher.fireParser('unitDied', {
+          unitGuid: 'Player-Enemy',
+          unitName: 'EnemyPlayer-Realm',
+          destFlags: UNIT_FLAG_REACTION_HOSTILE,
+          unconscious: false,
+          timestamp: new Date(roundStart.getTime() + 60_000)
+        })
+        await vi.advanceTimersByTimeAsync(0)
+        expect(recorder.stopMock).toHaveBeenCalledTimes(i + 1)
+      }
+
+      // Round 6 (final): recorder.stop() must NOT fire right away...
+      const round6Start = new Date(R1_START.getTime() + 5 * 90_000)
+      watcher.fireParser('arenaMatchStart', { ...matchStartSS, timestamp: round6Start })
+      watcher.fireParser('unitDied', {
+        unitGuid: 'Player-Enemy',
+        unitName: 'EnemyPlayer-Realm',
+        destFlags: UNIT_FLAG_REACTION_HOSTILE,
+        unconscious: false,
+        timestamp: new Date(round6Start.getTime() + 60_000)
+      })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(recorder.stopMock).toHaveBeenCalledTimes(5) // still 5, not 6
+
+      // ARENA_MATCH_END arriving mid-delay must not race/duplicate the eventual stop.
+      watcher.fireParser('arenaMatchEnd', { ...matchEnd, timestamp: new Date(round6Start.getTime() + 61_000) })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(recorder.stopMock).toHaveBeenCalledTimes(5)
+
+      // ...only after the post-roll buffer elapses.
+      await vi.advanceTimersByTimeAsync(SOLO_SHUFFLE_FINAL_ROUND_POST_ROLL_SECS * 1000 + 100)
+      expect(recorder.stopMock).toHaveBeenCalledTimes(6)
+    } finally {
+      vi.useRealTimers()
+    }
+
+    expect(events).toHaveLength(6)
+    expect(events[4]!.durationSecs).toBeCloseTo(60, 1) // round 5: no post-roll padding
+    expect(events[5]!.durationSecs).toBeCloseTo(60 + SOLO_SHUFFLE_FINAL_ROUND_POST_ROLL_SECS, 1) // round 6: padded
+    expect(machine.getStatus()).toBe('idle')
   })
 
   it('determines round result WIN from enemy real death', async () => {

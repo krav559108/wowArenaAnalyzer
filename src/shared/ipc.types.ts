@@ -241,7 +241,7 @@ export interface IpcCommands {
   'system:openSystemPreferences': { params: void; result: void }
   'system:pickFolder': { params: void; result: { path: string | null } }
   'system:pickLogFile': { params: void; result: { path: string | null } }
-  'system:openUrl': { params: { url: string }; result: void }
+  'system:openUrl': { params: { url: string }; result: { success: boolean; error?: string } }
   'system:relaunch': { params: void; result: void }
   'system:getPlatform': { params: void; result: { platform: string } }
 
