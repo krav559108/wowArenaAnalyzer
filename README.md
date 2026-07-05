@@ -4,6 +4,11 @@ Automatically records your World of Warcraft arena matches. Detects when you ent
 
 Supports **2v2, 3v3, and Rated Solo Shuffle** (Midnight / patch 12.x format).
 
+> 🧪 **Early beta.** This is actively developed and tested on a limited set of hardware —
+> capture behavior (especially audio) can vary across GPUs/drivers. If something doesn't
+> work, please [open an issue](../../issues/new/choose) with your OS/GPU details — that
+> kind of feedback is exactly what's needed to stabilize it for more setups.
+
 ---
 
 ## Support the project
@@ -131,6 +136,35 @@ After completing onboarding, settings are saved and the app goes straight to the
 | Auto Cleanup | Automatically delete old recordings after N days or when storage exceeds N GB |
 
 Game audio is captured automatically alongside the video (system loopback) — no separate audio device setup or third-party tools required, on either platform.
+
+---
+
+## Known Limitations
+
+- **macOS is not code-signed** — you must manually remove the quarantine flag on first
+  install (see above), and Screen Recording permission must be re-granted after every
+  update (macOS ties it to the app's code signature, which changes each build).
+- **System audio capture** relies on Electron/Chromium's loopback support, which is
+  newer and less battle-tested than video capture — if a recording has no audio or the
+  app fails to start capturing, please report it (see below) with your OS version and
+  GPU.
+- Tested primarily on Apple Silicon Macs and a limited set of Windows GPUs — other
+  hardware/driver combinations are less exercised.
+
+---
+
+## Reporting Issues / Feedback
+
+This project needs feedback from more hardware/setups than one developer can test alone.
+[Open an issue](../../issues/new/choose) using the bug report template, and please
+include:
+
+- OS version (e.g. macOS 15.1, Windows 11 23H2) and GPU (e.g. Apple M2, AMD RX 6700 XT)
+- App version (Settings → About, or the installer filename)
+- Whether it's a capture problem (no video/audio, fails to start) or something else
+  (wrong team detection, missing spells, UI issue)
+- Steps to reproduce, and — if relevant — the console output from `npm run dev` (or the
+  in-app error banner text)
 
 ---
 

@@ -1,0 +1,92 @@
+name: Bug report
+description: Something isn't working — capture, audio, team/spell detection, UI, etc.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing! This app is early beta and tested on limited hardware, so
+        details about your setup are the most useful part of any report.
+
+  - type: input
+    id: app-version
+    attributes:
+      label: App version
+      description: Settings → About, or the installer/DMG filename (e.g. 1.0.17)
+      placeholder: "1.0.17"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Windows 10
+        - Windows 11
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: OS version
+      placeholder: "macOS 15.1 / Windows 11 23H2"
+    validations:
+      required: true
+
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU
+      placeholder: "Apple M2, NVIDIA RTX 3060, AMD RX 6700 XT, Intel Iris Xe, ..."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: What kind of problem is this?
+      options:
+        - Recording doesn't start / capture fails
+        - No video in the recording
+        - No audio / audio issue in the recording
+        - Wrong team detection (allies shown as enemies or vice versa)
+        - Missing or wrong spell/class/spec detection
+        - Addon not connecting
+        - UI bug / visual issue
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you expected vs. what actually happened.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console output / error banner text
+      description: >
+        If you ran the app via `npm run dev`, paste the terminal output here. Otherwise,
+        paste the exact text from any in-app error banner.
+      render: shell
+    validations:
+      required: false
