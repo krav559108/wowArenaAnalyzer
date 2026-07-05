@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { TimelineEvent } from '@shared/ipc.types'
 
 const props = defineProps<{
@@ -8,6 +8,31 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{ seek: [time: number] }>()
+
+// Custom tooltip instead of the native `title` attribute — the native tooltip proved
+// unreliable in this Electron build over small, frequently-redrawn flex children inside
+// a scrolling panel (delayed/inconsistent, sometimes never appearing at all despite the
+// attribute being set correctly). This one is fully under our control: shows
+// immediately on hover, tracks the cursor, and can't be swallowed by browser tooltip
+// heuristics.
+const tooltip = ref<{ text: string; x: number; y: number } | null>(null)
+
+function showTooltip(e: MouseEvent, text: string | undefined): void {
+  if (!text) {
+    tooltip.value = null
+    return
+  }
+  tooltip.value = { text, x: e.clientX, y: e.clientY }
+}
+
+function moveTooltip(e: MouseEvent): void {
+  if (tooltip.value === null) return
+  tooltip.value = { ...tooltip.value, x: e.clientX, y: e.clientY }
+}
+
+function hideTooltip(): void {
+  tooltip.value = null
+}
 
 function fmtSecs(seconds: number): string {
   const m = Math.floor(seconds / 60)
@@ -104,9 +129,11 @@ function segmentTitle(seg: Segment): string {
 // OUTER bar container rather than relying only on individual segments, since a bucket
 // with several hits splits into slivers a few px wide that are unreliable to hover
 // precisely. The outer container is always a sane hoverable size regardless of how many
-// segments it's divided into.
-function bucketSideTitle(segs: Segment[]): string {
-  return segs.map(segmentTitle).join('\n')
+// segments it's divided into. Returns undefined (not "") when there's nothing to show —
+// an explicit empty title="" attribute suppresses tooltip inheritance in some browsers,
+// which is worse than just omitting the attribute.
+function bucketSideTitle(segs: Segment[]): string | undefined {
+  return segs.length > 0 ? segs.map(segmentTitle).join('\n') : undefined
 }
 
 function segmentColor(seg: Segment): string {
@@ -133,7 +160,9 @@ function defensivesUsed(ev: TimelineEvent): { spellName: string; relSecs: number
     >
       <div
         class="flex items-center gap-2 min-w-0 py-1 px-2"
-        :title="topSources"
+        @mouseenter="showTooltip($event, topSources)"
+        @mousemove="moveTooltip"
+        @mouseleave="hideTooltip"
       >
         <button
           class="w-10 flex-shrink-0 text-zinc-500 tabular-nums hover:text-zinc-300 text-left text-xs"
@@ -159,62 +188,75 @@ function defensivesUsed(ev: TimelineEvent): { spellName: string; relSecs: number
       <!-- Damage/healing over time, 1s buckets counting down to death. Each hit is its
            own segment, colored by the caster's class and sized by its share of the
            bucket — hover a segment for spell name, amount, and crit marker. -->
+      <!-- Deliberately NOT the same height/row shape as the bucket bars below (no
+           h-3.5/h-3, no :title) and given its own bottom margin — this used to be
+           visually identical to a bucket row sitting directly above the first real one,
+           which made it easy to mouse over expecting a hoverable bar and land on this
+           label instead, reading as "hover stopped working" after it was added. -->
       <div
         v-if="buckets.length > 0"
-        class="ml-12 mr-2 mb-1 space-y-0.5"
+        class="ml-12 mr-2 mb-1"
       >
-        <div class="flex items-center gap-1 h-3.5 text-[9px] font-semibold uppercase tracking-wider text-zinc-500">
+        <div class="flex items-center gap-1 mb-1 text-[9px] font-semibold uppercase tracking-wider text-zinc-600 pointer-events-none select-none">
           <span class="w-6 flex-shrink-0" />
-          <div class="flex-1 flex items-center h-3">
+          <div class="flex-1 flex items-center">
             <span class="flex-1 text-right pr-1">Damage Received</span>
-            <span class="w-px h-full bg-zinc-700 flex-shrink-0" />
+            <span class="w-px h-2.5 bg-zinc-700 flex-shrink-0" />
             <span class="flex-1 text-left pl-1">Healing Received</span>
           </div>
           <span class="flex-shrink-0 w-8" />
         </div>
-        <div
-          v-for="b in buckets"
-          :key="b.secBefore"
-          class="flex items-center gap-1 h-3.5 text-[9px]"
-        >
-          <span class="w-6 text-zinc-600 flex-shrink-0 text-right">-{{ b.secBefore }}s</span>
-          <div class="flex-1 flex items-center h-3">
-            <div class="flex-1 flex justify-end h-full">
-              <div
-                class="h-full flex overflow-hidden rounded-l-sm"
-                :style="{ width: `${bucketBarPct(b.totalDmg, buckets)}%` }"
-                :title="bucketSideTitle(b.damage)"
-              >
+        <div class="space-y-0.5">
+          <div
+            v-for="b in buckets"
+            :key="b.secBefore"
+            class="flex items-center gap-1 h-3.5 text-[9px]"
+          >
+            <span class="w-6 text-zinc-600 flex-shrink-0 text-right">-{{ b.secBefore }}s</span>
+            <div class="flex-1 flex items-center h-3">
+              <div class="flex-1 flex justify-end h-full">
                 <div
-                  v-for="(seg, si) in b.damage"
-                  :key="si"
-                  :style="{ width: `${(seg.amount / b.totalDmg) * 100}%`, backgroundColor: segmentColor(seg) }"
-                  :title="segmentTitle(seg)"
-                />
+                  class="h-full flex overflow-hidden rounded-l-sm"
+                  :style="{ width: `${bucketBarPct(b.totalDmg, buckets)}%` }"
+                  @mouseenter="showTooltip($event, bucketSideTitle(b.damage))"
+                  @mousemove="moveTooltip"
+                  @mouseleave="hideTooltip"
+                >
+                  <div
+                    v-for="(seg, si) in b.damage"
+                    :key="si"
+                    :style="{ width: `${(seg.amount / b.totalDmg) * 100}%`, backgroundColor: segmentColor(seg) }"
+                    @mouseenter.stop="showTooltip($event, segmentTitle(seg))"
+                    @mousemove.stop="moveTooltip"
+                  />
+                </div>
+              </div>
+              <div class="w-px h-full bg-zinc-700 flex-shrink-0" />
+              <div class="flex-1 flex justify-start h-full">
+                <div
+                  class="h-full flex overflow-hidden rounded-r-sm"
+                  :style="{ width: `${bucketBarPct(b.totalHeal, buckets)}%` }"
+                  @mouseenter="showTooltip($event, bucketSideTitle(b.healing))"
+                  @mousemove="moveTooltip"
+                  @mouseleave="hideTooltip"
+                >
+                  <div
+                    v-for="(seg, si) in b.healing"
+                    :key="si"
+                    class="opacity-80"
+                    :style="{ width: `${(seg.amount / b.totalHeal) * 100}%`, backgroundColor: segmentColor(seg) }"
+                    @mouseenter.stop="showTooltip($event, segmentTitle(seg))"
+                    @mousemove.stop="moveTooltip"
+                  />
+                </div>
               </div>
             </div>
-            <div class="w-px h-full bg-zinc-700 flex-shrink-0" />
-            <div class="flex-1 flex justify-start h-full">
-              <div
-                class="h-full flex overflow-hidden rounded-r-sm"
-                :style="{ width: `${bucketBarPct(b.totalHeal, buckets)}%` }"
-                :title="bucketSideTitle(b.healing)"
-              >
-                <div
-                  v-for="(seg, si) in b.healing"
-                  :key="si"
-                  class="opacity-80"
-                  :style="{ width: `${(seg.amount / b.totalHeal) * 100}%`, backgroundColor: segmentColor(seg) }"
-                  :title="segmentTitle(seg)"
-                />
-              </div>
-            </div>
+            <span
+              v-if="b.totalDmg > 0 || b.totalHeal > 0"
+              class="flex-shrink-0 tabular-nums"
+              :class="b.totalDmg >= b.totalHeal ? 'text-red-400' : 'text-green-400'"
+            >{{ b.totalDmg >= b.totalHeal ? '-' + fmtK(b.totalDmg) : '+' + fmtK(b.totalHeal) }}</span>
           </div>
-          <span
-            v-if="b.totalDmg > 0 || b.totalHeal > 0"
-            class="flex-shrink-0 tabular-nums"
-            :class="b.totalDmg >= b.totalHeal ? 'text-red-400' : 'text-green-400'"
-          >{{ b.totalDmg >= b.totalHeal ? '-' + fmtK(b.totalDmg) : '+' + fmtK(b.totalHeal) }}</span>
         </div>
       </div>
 
@@ -236,5 +278,13 @@ function defensivesUsed(ev: TimelineEvent): { spellName: string; relSecs: number
     >
       No deaths tracked in this match
     </p>
+
+    <div
+      v-if="tooltip !== null"
+      class="fixed z-50 px-2 py-1 rounded bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-200 whitespace-pre-line pointer-events-none shadow-lg"
+      :style="{ left: `${tooltip.x + 12}px`, top: `${tooltip.y + 12}px` }"
+    >
+      {{ tooltip.text }}
+    </div>
   </div>
 </template>
